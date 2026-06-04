@@ -1,0 +1,27 @@
+[project]
+name = "connector-detection"
+version = "0.1.0"
+description = "Connector visual inspection research pipeline"
+readme = "README.md"
+requires-python = ">=3.12"
+dependencies = [
+    "hdbscan>=0.8.40",
+    "joblib>=1.4.2",
+    "matplotlib>=3.9.0",
+    "numpy>=2.0.0",
+    "pandas>=2.2.2",
+    "pillow>=10.4.0",
+    "scikit-learn>=1.5.0",
+    "torch>=2.4.0",
+    "torchvision>=0.19.0",
+    "tqdm>=4.66.4",
+    "transformers>=4.44.0",
+    "typer>=0.12.3",
+    "umap-learn>=0.5.6",
+]
+
+[project.scripts]
+connector-detection = "connector_detection.cli:app"
+
+[tool.uv]
+package = true

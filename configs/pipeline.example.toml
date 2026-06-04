@@ -1,0 +1,16 @@
+[pipeline]
+# Put YOLO connector crops here first. Later stages can switch this to pin-band crops
+# or connector crops depending on which profile you are building.
+image_dir = "data/connector_crops"
+output_dir = "outputs/connector_clustering"
+
+image_size = 224
+dinov2_model = "facebook/dinov2-small"
+batch_size = 16
+
+pca_components = 50
+hdbscan_min_cluster_size = 15
+hdbscan_min_samples = 5
+review_samples_per_cluster = 30
+unknown_distance_quantile = 0.995
+random_state = 42
