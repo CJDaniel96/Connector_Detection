@@ -43,6 +43,39 @@ Or run all current stages:
 uv run connector-detection run configs/pipeline.example.toml
 ```
 
+## Crop pin bands from PASCAL VOC XML
+
+If you already have connector images and pin-band PASCAL VOC XML labels, crop
+pin bands and rotate every crop into the same `up` orientation with:
+
+```bash
+uv run connector-detection crop-pin-bands \
+  --xml-dir data/pin_band_xml \
+  --image-dir data/connector_images \
+  --output-dir outputs/pin_band_crops \
+  --label pin_band \
+  --padding 2
+```
+
+Outputs:
+
+- normalized pin-band crops directly under `outputs/pin_band_crops`
+- `outputs/pin_band_crops/pin_band_crops_manifest.csv`
+
+Orientation rule:
+
+- Horizontal bbox, `bbox_width >= bbox_height`: center above image center -> `up`,
+  otherwise `down`.
+- Vertical bbox, `bbox_width < bbox_height`: center left of image center -> `left`,
+  otherwise `right`.
+
+Normalization rule:
+
+- `up`: keep original crop.
+- `down`: rotate 180 degrees.
+- `left`: rotate 90 degrees clockwise.
+- `right`: rotate 90 degrees counter-clockwise.
+
 Main outputs:
 
 - `embeddings.npy`: DINOv2 connector embeddings

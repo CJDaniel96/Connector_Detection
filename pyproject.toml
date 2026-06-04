@@ -23,5 +23,9 @@ dependencies = [
 [project.scripts]
 connector-detection = "connector_detection.cli:app"
 
+[tool.setuptools.packages.find]
+include = ["connector_detection*"]
+exclude = ["configs*"]
+
 [tool.uv]
 package = true

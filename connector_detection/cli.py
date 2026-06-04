@@ -8,6 +8,7 @@ from connector_detection.clustering import assign_existing_embeddings, fit_clust
 from connector_detection.config import load_config
 from connector_detection.features import extract_embeddings
 from connector_detection.review import export_review_samples
+from connector_detection.voc import crop_pin_bands_from_voc
 from connector_detection.visualize import plot_umap
 
 app = typer.Typer(help="Connector anomaly research pipeline.")
@@ -77,6 +78,32 @@ def assign(
 ) -> None:
     output_path = assign_existing_embeddings(embeddings, model, output)
     typer.echo(f"Saved {output_path}")
+
+
+@app.command()
+def crop_pin_bands(
+    xml_dir: Path = typer.Option(..., help="Directory containing PASCAL VOC XML files."),
+    image_dir: Path = typer.Option(..., help="Directory containing connector images."),
+    output_dir: Path = typer.Option(
+        Path("outputs/pin_band_crops"),
+        help="Output directory. Crops are rotated to the same up orientation.",
+    ),
+    label: str | None = typer.Option(
+        None,
+        help="Only crop VOC objects with this label. By default, crop all objects.",
+    ),
+    padding: int = typer.Option(0, min=0, help="Extra pixels around each bounding box."),
+    image_format: str = typer.Option("png", help="Crop image format, for example png or jpg."),
+) -> None:
+    manifest_path = crop_pin_bands_from_voc(
+        xml_dir=xml_dir,
+        image_dir=image_dir,
+        output_dir=output_dir,
+        label=label,
+        padding=padding,
+        image_format=image_format,
+    )
+    typer.echo(f"Saved {manifest_path}")
 
 
 @app.command()
