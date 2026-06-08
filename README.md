@@ -125,6 +125,84 @@ uv run connector-detection fit-centroids \
   --label-depth 2
 ```
 
+## Train one PatchCore bank per manual class
+
+Use good pin-band images for each class:
+
+```text
+data/patchcore_train/
+  20pin/
+    good_001.png
+    good_002.png
+  24pin/
+    good_101.png
+    good_102.png
+```
+
+Train one PatchCore-style feature bank per class:
+
+```bash
+uv run connector-detection train-patchcore \
+  configs/pipeline.example.toml \
+  --train-image-dir data/patchcore_train \
+  --output-dir outputs/patchcore_pin_bands
+```
+
+This uses the same final feature input as clustering:
+
+```text
+DINOv2 embedding + weighted structural features
+```
+
+Optional validation data can use the same class folders. If a path contains
+`good`, `ok`, `normal`, or `pass`, it is treated as normal ground truth. If it
+contains `ng`, `bad`, `defect`, `dirty`, `foreign`, `missing`, `shift`,
+`abnormal`, or `anomaly`, it is treated as anomaly ground truth.
+
+```text
+data/patchcore_val/
+  20pin/
+    good/
+      a.png
+    defect/
+      b.png
+  24pin/
+    good/
+      c.png
+    dirty/
+      d.png
+```
+
+Run train + validation:
+
+```bash
+uv run connector-detection train-patchcore \
+  configs/pipeline.example.toml \
+  --train-image-dir data/patchcore_train \
+  --validation-image-dir data/patchcore_val \
+  --output-dir outputs/patchcore_pin_bands
+```
+
+Outputs:
+
+- `patchcore_models.joblib`: per-class feature banks and thresholds
+- `train_patchcore_scores.csv`: leave-one-out training scores
+- `validation_patchcore_scores.csv`: validation scores, predictions, and optional ground truth
+- `patchcore_report.md`: per-class thresholds and validation metrics
+- `plots/*_histogram.png`: score histograms with threshold lines
+- `montage/train/*_top_scores.jpg`: highest-score training samples per class
+- `montage/validation/*_top_scores.jpg`: highest-score validation samples per class
+
+Validate later with an existing model:
+
+```bash
+uv run connector-detection validate-patchcore \
+  configs/pipeline.example.toml \
+  outputs/patchcore_pin_bands/patchcore_models.joblib \
+  --validation-image-dir data/patchcore_val \
+  --output-dir outputs/patchcore_validation
+```
+
 Main outputs:
 
 - `embeddings.npy`: final DINOv2 + weighted structural feature vectors

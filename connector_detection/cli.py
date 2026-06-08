@@ -8,6 +8,7 @@ from connector_detection.centroid import assign_nearest_centroids, fit_nearest_c
 from connector_detection.clustering import assign_existing_embeddings, fit_clusters
 from connector_detection.config import load_config
 from connector_detection.features import extract_embeddings
+from connector_detection.patchcore import load_and_validate_patchcore, train_patchcore_per_class
 from connector_detection.review import export_review_samples
 from connector_detection.voc import crop_pin_bands_from_voc
 from connector_detection.visualize import plot_umap
@@ -182,6 +183,94 @@ def assign_centroids(
         output_path=output,
     )
     typer.echo(f"Saved {output_path}")
+
+
+@app.command()
+def train_patchcore(
+    config: Path,
+    train_image_dir: Path = typer.Option(
+        ...,
+        help="Root folder whose child folders are class labels. Use good images for each class.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("outputs/patchcore"),
+        help="Output directory for models, validation CSVs, plots, and report.",
+    ),
+    validation_image_dir: Path | None = typer.Option(
+        None,
+        help="Optional validation root. Expected layout starts with the same class folders.",
+    ),
+    class_depth: int = typer.Option(
+        1,
+        min=1,
+        help="How many path components under the root form the class label.",
+    ),
+    threshold_quantile: float = typer.Option(
+        0.995,
+        min=0.0,
+        max=1.0,
+        help="Training leave-one-out score quantile used as anomaly threshold.",
+    ),
+    device: str | None = None,
+) -> None:
+    cfg = load_config(config)
+    model_path, report_path = train_patchcore_per_class(
+        train_image_dir=train_image_dir,
+        output_dir=output_dir,
+        model_name=cfg.dinov2_model,
+        image_size=cfg.image_size,
+        batch_size=cfg.batch_size,
+        structural_weight=cfg.structural_weight,
+        projection_profile_dims=cfg.projection_profile_dims,
+        bright_threshold=cfg.bright_threshold,
+        edge_threshold=cfg.edge_threshold,
+        peak_threshold_std=cfg.peak_threshold_std,
+        peak_min_distance=cfg.peak_min_distance,
+        class_depth=class_depth,
+        threshold_quantile=threshold_quantile,
+        validation_image_dir=validation_image_dir,
+        device=device,
+    )
+    typer.echo(f"Saved {model_path}")
+    typer.echo(f"Saved {report_path}")
+
+
+@app.command()
+def validate_patchcore(
+    config: Path,
+    model: Path,
+    validation_image_dir: Path = typer.Option(
+        ...,
+        help="Validation root. Expected layout starts with the same class folders.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("outputs/patchcore_validation"),
+        help="Output directory for validation CSVs, plots, montage, and report.",
+    ),
+    class_depth: int = typer.Option(
+        1,
+        min=1,
+        help="How many path components under the validation root form the class label.",
+    ),
+    device: str | None = None,
+) -> None:
+    cfg = load_config(config)
+    report_path = load_and_validate_patchcore(
+        model_path=model,
+        validation_image_dir=validation_image_dir,
+        output_dir=output_dir,
+        model_name=cfg.dinov2_model,
+        image_size=cfg.image_size,
+        batch_size=cfg.batch_size,
+        projection_profile_dims=cfg.projection_profile_dims,
+        bright_threshold=cfg.bright_threshold,
+        edge_threshold=cfg.edge_threshold,
+        peak_threshold_std=cfg.peak_threshold_std,
+        peak_min_distance=cfg.peak_min_distance,
+        class_depth=class_depth,
+        device=device,
+    )
+    typer.echo(f"Saved {report_path}")
 
 
 @app.command()

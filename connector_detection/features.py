@@ -49,6 +49,59 @@ class Dinov2FeatureExtractor:
         return np.vstack(embeddings)
 
 
+def build_combined_embeddings(
+    paths: list[Path],
+    output_dir: Path,
+    model_name: str,
+    image_size: int,
+    batch_size: int,
+    structural_weight: float = 2.0,
+    projection_profile_dims: int = 128,
+    bright_threshold: float = 0.65,
+    edge_threshold: float = 0.12,
+    peak_threshold_std: float = 0.5,
+    peak_min_distance: int = 3,
+    structural_scaler: StandardScaler | None = None,
+    device: str | None = None,
+) -> tuple[np.ndarray, pd.DataFrame, StandardScaler]:
+    if not paths:
+        raise ValueError("No images provided for embedding extraction")
+
+    structural_config = StructuralFeatureConfig(
+        projection_dims=projection_profile_dims,
+        bright_threshold=bright_threshold,
+        edge_threshold=edge_threshold,
+        peak_threshold_std=peak_threshold_std,
+        peak_min_distance=peak_min_distance,
+    )
+    structural_features, structural_summary = compute_structural_features(
+        paths,
+        structural_config,
+    )
+    scaler = structural_scaler or StandardScaler()
+    structural_scaled = (
+        scaler.fit_transform(structural_features)
+        if structural_scaler is None
+        else scaler.transform(structural_features)
+    )
+    structural_weighted = structural_scaled * structural_weight
+
+    extractor = Dinov2FeatureExtractor(model_name, image_size, device)
+    dinov2_embeddings = extractor.encode_paths(paths, batch_size)
+    embeddings = np.concatenate([dinov2_embeddings, structural_weighted], axis=1)
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    np.save(output_dir / "dinov2_embeddings.npy", dinov2_embeddings)
+    np.save(output_dir / "structural_features.npy", structural_features)
+    np.save(output_dir / "structural_features_scaled.npy", structural_scaled)
+    np.save(output_dir / "embeddings.npy", embeddings)
+    structural_summary.to_csv(output_dir / "structural_features.csv", index=False)
+    (output_dir / "structural_feature_names.json").write_text(
+        json.dumps(structural_feature_names(projection_profile_dims), indent=2)
+    )
+    return embeddings, structural_summary, scaler
+
+
 def extract_embeddings(
     image_dir: Path,
     output_dir: Path,
@@ -68,42 +121,25 @@ def extract_embeddings(
     if not paths:
         raise ValueError(f"No images found under {image_dir}")
 
-    structural_config = StructuralFeatureConfig(
-        projection_dims=projection_profile_dims,
+    embeddings, structural_summary, scaler = build_combined_embeddings(
+        paths=paths,
+        output_dir=output_dir,
+        model_name=model_name,
+        image_size=image_size,
+        batch_size=batch_size,
+        structural_weight=structural_weight,
+        projection_profile_dims=projection_profile_dims,
         bright_threshold=bright_threshold,
         edge_threshold=edge_threshold,
         peak_threshold_std=peak_threshold_std,
         peak_min_distance=peak_min_distance,
+        device=device,
     )
-    structural_features, structural_summary = compute_structural_features(
-        paths,
-        structural_config,
-    )
-    scaler = StandardScaler()
-    structural_scaled = scaler.fit_transform(structural_features)
-    structural_weighted = structural_scaled * structural_weight
-
-    extractor = Dinov2FeatureExtractor(model_name, image_size, device)
-    dinov2_embeddings = extractor.encode_paths(paths, batch_size)
-    embeddings = np.concatenate([dinov2_embeddings, structural_weighted], axis=1)
 
     embedding_path = output_dir / "embeddings.npy"
-    dinov2_path = output_dir / "dinov2_embeddings.npy"
-    structural_path = output_dir / "structural_features.npy"
-    structural_scaled_path = output_dir / "structural_features_scaled.npy"
-    structural_csv_path = output_dir / "structural_features.csv"
     scaler_path = output_dir / "structural_feature_scaler.joblib"
-    feature_names_path = output_dir / "structural_feature_names.json"
     manifest_path = output_dir / "manifest.csv"
-    np.save(dinov2_path, dinov2_embeddings)
-    np.save(structural_path, structural_features)
-    np.save(structural_scaled_path, structural_scaled)
-    np.save(embedding_path, embeddings)
-    structural_summary.to_csv(structural_csv_path, index=False)
     joblib.dump(scaler, scaler_path)
-    feature_names_path.write_text(
-        json.dumps(structural_feature_names(projection_profile_dims), indent=2)
-    )
     manifest = pd.DataFrame({"image_path": [str(path) for path in paths]})
     manifest = manifest.merge(structural_summary, on="image_path", how="left")
     manifest["structural_weight"] = structural_weight
