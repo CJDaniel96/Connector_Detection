@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 from pathlib import Path
+import os
+import tempfile
 
-import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
+
+os.environ.setdefault(
+    "MPLCONFIGDIR",
+    str(Path(tempfile.gettempdir()) / "connector_detection_matplotlib"),
+)
+import matplotlib.pyplot as plt
 
 
 def plot_umap(

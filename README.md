@@ -81,6 +81,50 @@ Normalization rule:
 - `left`: rotate 90 degrees clockwise.
 - `right`: rotate 90 degrees counter-clockwise.
 
+## Fit nearest-centroid groups from manual labels
+
+Put manually classified pin-band images into folders where each folder name is
+the label:
+
+```text
+data/labeled_pin_bands/
+  20pin/
+    a.png
+    b.png
+  24pin/
+    c.png
+    d.png
+```
+
+Then fit a nearest-centroid model using the same DINOv2 + structural feature
+input:
+
+```bash
+uv run connector-detection fit-centroids \
+  configs/pipeline.example.toml \
+  --labeled-image-dir data/labeled_pin_bands \
+  --output-dir outputs/nearest_centroid_pin_groups
+```
+
+Outputs:
+
+- `embeddings.npy`: final DINOv2 + weighted structural features
+- `nearest_centroid_model.joblib`: label centroids and unknown thresholds
+- `nearest_centroid_assignments.csv`: nearest-centroid result for each image
+- `nearest_centroid_summary.csv`: per-label count and distance statistics
+- `nearest_centroid_umap.png`: UMAP visualization with centroid markers
+- `montage/*.jpg`: nearest samples for each manual label
+
+For nested labels, increase `--label-depth`. For example, if labels are
+`vendor_a/20pin`, use:
+
+```bash
+uv run connector-detection fit-centroids \
+  configs/pipeline.example.toml \
+  --labeled-image-dir data/labeled_pin_bands \
+  --label-depth 2
+```
+
 Main outputs:
 
 - `embeddings.npy`: final DINOv2 + weighted structural feature vectors

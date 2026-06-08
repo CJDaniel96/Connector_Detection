@@ -4,6 +4,7 @@ from pathlib import Path
 
 import typer
 
+from connector_detection.centroid import assign_nearest_centroids, fit_nearest_centroids
 from connector_detection.clustering import assign_existing_embeddings, fit_clusters
 from connector_detection.config import load_config
 from connector_detection.features import extract_embeddings
@@ -110,6 +111,77 @@ def crop_pin_bands(
         image_format=image_format,
     )
     typer.echo(f"Saved {manifest_path}")
+
+
+@app.command()
+def fit_centroids(
+    config: Path,
+    labeled_image_dir: Path | None = typer.Option(
+        None,
+        help="Root folder whose child folders are manual labels. Defaults to config image_dir.",
+    ),
+    output_dir: Path | None = typer.Option(
+        None,
+        help="Output directory. Defaults to config output_dir.",
+    ),
+    label_depth: int = typer.Option(
+        1,
+        min=1,
+        help="How many parent folder levels form the manual label.",
+    ),
+    threshold_quantile: float = typer.Option(
+        0.995,
+        min=0.0,
+        max=1.0,
+        help="Per-label distance quantile used as unknown threshold.",
+    ),
+    device: str | None = None,
+) -> None:
+    cfg = load_config(config)
+    feature_image_dir = labeled_image_dir or cfg.image_dir
+    feature_output_dir = output_dir or cfg.output_dir
+    embedding_path, manifest_path = extract_embeddings(
+        image_dir=feature_image_dir,
+        output_dir=feature_output_dir,
+        model_name=cfg.dinov2_model,
+        image_size=cfg.image_size,
+        batch_size=cfg.batch_size,
+        structural_weight=cfg.structural_weight,
+        projection_profile_dims=cfg.projection_profile_dims,
+        bright_threshold=cfg.bright_threshold,
+        edge_threshold=cfg.edge_threshold,
+        peak_threshold_std=cfg.peak_threshold_std,
+        peak_min_distance=cfg.peak_min_distance,
+        device=device,
+    )
+    assignments_path, summary_path, plot_path = fit_nearest_centroids(
+        embeddings_path=embedding_path,
+        manifest_path=manifest_path,
+        image_dir=feature_image_dir,
+        output_dir=feature_output_dir,
+        label_depth=label_depth,
+        threshold_quantile=threshold_quantile,
+        random_state=cfg.random_state,
+    )
+    typer.echo(f"Saved {assignments_path}")
+    typer.echo(f"Saved {summary_path}")
+    typer.echo(f"Saved {plot_path}")
+
+
+@app.command()
+def assign_centroids(
+    embeddings: Path,
+    manifest: Path,
+    model: Path,
+    output: Path = Path("outputs/nearest_centroid_predictions.csv"),
+) -> None:
+    output_path = assign_nearest_centroids(
+        embeddings_path=embeddings,
+        manifest_path=manifest,
+        model_path=model,
+        output_path=output,
+    )
+    typer.echo(f"Saved {output_path}")
 
 
 @app.command()
