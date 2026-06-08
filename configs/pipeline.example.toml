@@ -13,4 +13,14 @@ hdbscan_min_cluster_size = 15
 hdbscan_min_samples = 5
 review_samples_per_cluster = 30
 unknown_distance_quantile = 0.995
+
+# Pin-band structural features are standardized, multiplied by this weight,
+# then concatenated with normalized DINOv2 embeddings.
+structural_weight = 2.0
+projection_profile_dims = 128
+bright_threshold = 0.65
+edge_threshold = 0.12
+peak_threshold_std = 0.5
+peak_min_distance = 3
+
 random_state = 42

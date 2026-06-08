@@ -23,6 +23,12 @@ def extract(config: Path, device: str | None = None) -> None:
         model_name=cfg.dinov2_model,
         image_size=cfg.image_size,
         batch_size=cfg.batch_size,
+        structural_weight=cfg.structural_weight,
+        projection_profile_dims=cfg.projection_profile_dims,
+        bright_threshold=cfg.bright_threshold,
+        edge_threshold=cfg.edge_threshold,
+        peak_threshold_std=cfg.peak_threshold_std,
+        peak_min_distance=cfg.peak_min_distance,
         device=device,
     )
     typer.echo(f"Saved {embedding_path}")

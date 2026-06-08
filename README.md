@@ -5,16 +5,21 @@ grouping, and cluster-level anomaly workflows.
 
 ## Goal
 
-The first implementation focuses on the clustering backbone:
+The implementation focuses on the clustering backbone:
 
 1. Use your existing YOLO model to crop connector components.
 2. Resize and pad connector crops to a stable square input.
 3. Extract DINOv2 embeddings.
-4. Reduce embeddings with PCA.
-5. Cluster connector types with HDBSCAN.
-6. Export representative samples for manual review.
-7. Plot UMAP for cluster quality inspection.
-8. Save a KNN / nearest-centroid assignment model for new samples.
+4. Compute structural pin-band features: aspect ratio, edge density,
+   projection profile, peak count, peak spacing, and bright ratio.
+5. Standardize structural features, multiply by `structural_weight`, and
+   concatenate them with DINOv2 embeddings.
+6. Reduce combined features with PCA.
+7. Cluster connector or pin-band types with HDBSCAN.
+8. Export representative samples, montage images, and cluster feature
+   statistics for manual review.
+9. Plot UMAP for cluster quality inspection.
+10. Save a KNN / nearest-centroid assignment model for new samples.
 
 After the cluster groups are stable, each final cluster can own its own pin-band
 YOLO model or crop config, PatchCore feature bank, anomaly threshold, and
@@ -78,11 +83,16 @@ Normalization rule:
 
 Main outputs:
 
-- `embeddings.npy`: DINOv2 connector embeddings
+- `embeddings.npy`: final DINOv2 + weighted structural feature vectors
+- `dinov2_embeddings.npy`: DINOv2-only embeddings
+- `structural_features.npy`: raw structural features
+- `structural_features_scaled.npy`: StandardScaler-transformed structural features
+- `structural_features.csv`: readable structural summary per image
+- `structural_feature_scaler.joblib`: fitted StandardScaler
 - `manifest.csv`: image path index aligned with embeddings
 - `embeddings_pca.npy`: PCA-reduced feature vectors
 - `clusters.csv`: HDBSCAN cluster result and confidence
-- `review/`: sampled images grouped by cluster for human review
+- `review/`: sampled images, montage images, and cluster feature statistics
 - `umap_clusters.png`: 2D UMAP visualization
 - `cluster_assignment.joblib`: PCA + KNN + centroid unknown-threshold model
 

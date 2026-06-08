@@ -17,6 +17,12 @@ class PipelineConfig:
     hdbscan_min_samples: int | None = None
     review_samples_per_cluster: int = 30
     unknown_distance_quantile: float = 0.995
+    structural_weight: float = 2.0
+    projection_profile_dims: int = 128
+    bright_threshold: float = 0.65
+    edge_threshold: float = 0.12
+    peak_threshold_std: float = 0.5
+    peak_min_distance: int = 3
     random_state: int = 42
 
 
@@ -38,5 +44,11 @@ def load_config(path: Path) -> PipelineConfig:
         ),
         review_samples_per_cluster=int(section.get("review_samples_per_cluster", 30)),
         unknown_distance_quantile=float(section.get("unknown_distance_quantile", 0.995)),
+        structural_weight=float(section.get("structural_weight", 2.0)),
+        projection_profile_dims=int(section.get("projection_profile_dims", 128)),
+        bright_threshold=float(section.get("bright_threshold", 0.65)),
+        edge_threshold=float(section.get("edge_threshold", 0.12)),
+        peak_threshold_std=float(section.get("peak_threshold_std", 0.5)),
+        peak_min_distance=int(section.get("peak_min_distance", 3)),
         random_state=int(section.get("random_state", 42)),
     )
