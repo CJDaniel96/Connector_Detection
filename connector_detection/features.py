@@ -61,6 +61,7 @@ def build_combined_embeddings(
     edge_threshold: float = 0.12,
     peak_threshold_std: float = 0.5,
     peak_min_distance: int = 3,
+    structural_image_size: int | tuple[int, int] | None = None,
     structural_scaler: StandardScaler | None = None,
     device: str | None = None,
 ) -> tuple[np.ndarray, pd.DataFrame, StandardScaler]:
@@ -73,6 +74,7 @@ def build_combined_embeddings(
         edge_threshold=edge_threshold,
         peak_threshold_std=peak_threshold_std,
         peak_min_distance=peak_min_distance,
+        image_size=structural_image_size,
     )
     structural_features, structural_summary = compute_structural_features(
         paths,
@@ -114,6 +116,7 @@ def extract_embeddings(
     edge_threshold: float = 0.12,
     peak_threshold_std: float = 0.5,
     peak_min_distance: int = 3,
+    structural_image_size: int | tuple[int, int] | None = None,
     device: str | None = None,
 ) -> tuple[Path, Path]:
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -133,6 +136,7 @@ def extract_embeddings(
         edge_threshold=edge_threshold,
         peak_threshold_std=peak_threshold_std,
         peak_min_distance=peak_min_distance,
+        structural_image_size=structural_image_size,
         device=device,
     )
 

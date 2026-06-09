@@ -5,6 +5,9 @@ from pathlib import Path
 import tomllib
 
 
+ImageSize = int | tuple[int, int]
+
+
 @dataclass(frozen=True)
 class PipelineConfig:
     image_dir: Path
@@ -23,6 +26,7 @@ class PipelineConfig:
     edge_threshold: float = 0.12
     peak_threshold_std: float = 0.5
     peak_min_distance: int = 3
+    structural_image_size: ImageSize | None = None
     patchcore_backbone: str = "wide_resnet50_2"
     patchcore_layers: tuple[str, ...] = ("layer2", "layer3")
     patchcore_coreset_sampling_ratio: float = 0.1
@@ -30,8 +34,8 @@ class PipelineConfig:
     patchcore_train_batch_size: int = 32
     patchcore_eval_batch_size: int = 32
     patchcore_num_workers: int = 0
-    patchcore_image_size: int = 256
-    patchcore_center_crop_size: int | None = 224
+    patchcore_image_size: ImageSize = 256
+    patchcore_center_crop_size: ImageSize | None = 224
     patchcore_accelerator: str = "auto"
     patchcore_devices: str = "auto"
     patchcore_max_epochs: int = 1
@@ -74,6 +78,7 @@ def load_config(path: Path) -> PipelineConfig:
         edge_threshold=float(section.get("edge_threshold", 0.12)),
         peak_threshold_std=float(section.get("peak_threshold_std", 0.5)),
         peak_min_distance=int(section.get("peak_min_distance", 3)),
+        structural_image_size=_parse_optional_image_size(section.get("structural_image_size")),
         patchcore_backbone=str(section.get("patchcore_backbone", "wide_resnet50_2")),
         patchcore_layers=tuple(section.get("patchcore_layers", ["layer2", "layer3"])),
         patchcore_coreset_sampling_ratio=float(
@@ -83,11 +88,9 @@ def load_config(path: Path) -> PipelineConfig:
         patchcore_train_batch_size=int(section.get("patchcore_train_batch_size", 32)),
         patchcore_eval_batch_size=int(section.get("patchcore_eval_batch_size", 32)),
         patchcore_num_workers=int(section.get("patchcore_num_workers", 0)),
-        patchcore_image_size=int(section.get("patchcore_image_size", 256)),
-        patchcore_center_crop_size=(
-            None
-            if section.get("patchcore_center_crop_size") in (None, "null")
-            else int(section.get("patchcore_center_crop_size", 224))
+        patchcore_image_size=_parse_image_size(section.get("patchcore_image_size", 256)),
+        patchcore_center_crop_size=_parse_optional_image_size(
+            section.get("patchcore_center_crop_size", 224)
         ),
         patchcore_accelerator=str(section.get("patchcore_accelerator", "auto")),
         patchcore_devices=str(section.get("patchcore_devices", "auto")),
@@ -108,3 +111,17 @@ def load_config(path: Path) -> PipelineConfig:
         fusion_threshold=float(section.get("fusion_threshold", 1.0)),
         random_state=int(section.get("random_state", 42)),
     )
+
+
+def _parse_image_size(value: object) -> ImageSize:
+    if isinstance(value, list):
+        if len(value) != 2:
+            raise ValueError("Image size list must be [height, width].")
+        return int(value[0]), int(value[1])
+    return int(value)
+
+
+def _parse_optional_image_size(value: object) -> ImageSize | None:
+    if value in (None, "null"):
+        return None
+    return _parse_image_size(value)

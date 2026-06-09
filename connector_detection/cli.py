@@ -39,6 +39,7 @@ def extract(config: Path, device: str | None = None) -> None:
         edge_threshold=cfg.edge_threshold,
         peak_threshold_std=cfg.peak_threshold_std,
         peak_min_distance=cfg.peak_min_distance,
+        structural_image_size=cfg.structural_image_size,
         device=device,
     )
     typer.echo(f"Saved {embedding_path}")
@@ -161,6 +162,7 @@ def fit_centroids(
         edge_threshold=cfg.edge_threshold,
         peak_threshold_std=cfg.peak_threshold_std,
         peak_min_distance=cfg.peak_min_distance,
+        structural_image_size=cfg.structural_image_size,
         device=device,
     )
     assignments_path, summary_path, plot_path = fit_nearest_centroids(
@@ -461,6 +463,7 @@ def _structural_config_from_pipeline(cfg) -> StructuralFeatureConfig:
         edge_threshold=cfg.edge_threshold,
         peak_threshold_std=cfg.peak_threshold_std,
         peak_min_distance=cfg.peak_min_distance,
+        image_size=cfg.structural_image_size,
     )
 
 

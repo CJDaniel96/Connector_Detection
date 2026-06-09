@@ -160,8 +160,8 @@ patchcore_num_neighbors = 9
 patchcore_train_batch_size = 32
 patchcore_eval_batch_size = 32
 patchcore_num_workers = 0
-patchcore_image_size = 256
-patchcore_center_crop_size = 224
+patchcore_image_size = [256, 512]
+patchcore_center_crop_size = [224, 448]
 patchcore_accelerator = "auto"
 patchcore_devices = "auto"
 patchcore_max_epochs = 1
@@ -175,7 +175,9 @@ Parameter meaning:
 - `patchcore_layers`: CNN layers used to build the patch memory bank.
 - `patchcore_coreset_sampling_ratio`: anomalib PatchCore coreset ratio.
 - `patchcore_num_neighbors`: nearest neighbors used by anomalib PatchCore.
-- `patchcore_image_size` / `patchcore_center_crop_size`: anomalib preprocessor size.
+- `patchcore_image_size` / `patchcore_center_crop_size`: anomalib preprocessor
+  size. Use `[height, width]` for rectangular pin bands, or a single integer for
+  square resizing. Use `"null"` for `patchcore_center_crop_size` to disable crop.
 - `patchcore_histogram_bins`: bins used in score distribution plots.
 - `patchcore_montage_samples`: highest-score samples shown per class montage.
 
@@ -274,6 +276,7 @@ Structural branch checks:
 Fusion settings:
 
 ```toml
+structural_image_size = [20, 512] # [height, width], or "null" for original size
 structural_score_threshold_quantile = 0.995
 fusion_patchcore_weight = 1.0
 fusion_peak_count_weight = 1.0

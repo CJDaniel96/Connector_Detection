@@ -44,8 +44,8 @@ class AnomalibPatchcoreConfig:
     train_batch_size: int = 32
     eval_batch_size: int = 32
     num_workers: int = 0
-    image_size: int = 256
-    center_crop_size: int | None = 224
+    image_size: int | tuple[int, int] = 256
+    center_crop_size: int | tuple[int, int] | None = 224
     accelerator: str = "auto"
     devices: int | str = "auto"
     max_epochs: int = 1
@@ -362,15 +362,13 @@ def _make_folder_datamodule(label: str, dataset_root: Path, config: AnomalibPatc
 def _make_patchcore_model(Patchcore: Any, config: AnomalibPatchcoreConfig) -> Any:
     pre_processor = True
     if hasattr(Patchcore, "configure_pre_processor"):
-        image_size = (config.image_size, config.image_size)
-        center_crop_size = (
-            (config.center_crop_size, config.center_crop_size)
-            if config.center_crop_size is not None
-            else None
-        )
         pre_processor = Patchcore.configure_pre_processor(
-            image_size=image_size,
-            center_crop_size=center_crop_size,
+            image_size=_hw_tuple(config.image_size),
+            center_crop_size=(
+                _hw_tuple(config.center_crop_size)
+                if config.center_crop_size is not None
+                else None
+            ),
         )
     return Patchcore(
         backbone=config.backbone,
@@ -387,6 +385,12 @@ def _instantiate_with_supported_kwargs(cls: Any, kwargs: dict[str, Any]) -> Any:
     signature = inspect.signature(cls)
     supported = {key: value for key, value in kwargs.items() if key in signature.parameters}
     return cls(**supported)
+
+
+def _hw_tuple(image_size: int | tuple[int, int]) -> tuple[int, int]:
+    if isinstance(image_size, tuple):
+        return image_size
+    return image_size, image_size
 
 
 def _find_checkpoint_path(engine: Any, output_dir: Path) -> Path:

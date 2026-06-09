@@ -16,6 +16,7 @@ class StructuralFeatureConfig:
     edge_threshold: float = 0.12
     peak_threshold_std: float = 0.5
     peak_min_distance: int = 3
+    image_size: int | tuple[int, int] | None = None
 
 
 BASE_FEATURE_NAMES = [
@@ -97,6 +98,8 @@ def compute_structural_feature(
 ) -> tuple[np.ndarray, dict[str, float]]:
     with Image.open(image_path) as raw_image:
         image = ImageOps.exif_transpose(raw_image).convert("L")
+        if config.image_size is not None:
+            image = image.resize(_pil_size(config.image_size), Image.Resampling.BICUBIC)
         width, height = image.size
         gray = np.asarray(image, dtype=np.float32) / 255.0
 
@@ -156,3 +159,10 @@ def compute_structural_features(
         features.append(feature)
         summaries.append({"image_path": str(image_path), **summary})
     return np.vstack(features), pd.DataFrame(summaries)
+
+
+def _pil_size(image_size: int | tuple[int, int]) -> tuple[int, int]:
+    if isinstance(image_size, tuple):
+        height, width = image_size
+        return width, height
+    return image_size, image_size
