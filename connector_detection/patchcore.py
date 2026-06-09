@@ -347,7 +347,7 @@ def _make_folder_datamodule(label: str, dataset_root: Path, config: AnomalibPatc
         "normal_split_ratio": config.normal_split_ratio,
         "test_split_mode": "from_dir",
         "test_split_ratio": config.test_split_ratio,
-        "val_split_mode": "none",
+        "val_split_mode": "same_as_test",
         "val_split_ratio": config.val_split_ratio,
         "seed": config.seed,
     }
