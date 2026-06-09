@@ -125,7 +125,7 @@ uv run connector-detection fit-centroids \
   --label-depth 2
 ```
 
-## Train one PatchCore bank per manual class
+## Train one anomalib PatchCore model per manual class
 
 Use good pin-band images for each class:
 
@@ -139,7 +139,7 @@ data/patchcore_train/
     good_102.png
 ```
 
-Train one PatchCore-style feature bank per class:
+Train one anomalib PatchCore model per class:
 
 ```bash
 uv run connector-detection train-patchcore \
@@ -148,10 +148,48 @@ uv run connector-detection train-patchcore \
   --output-dir outputs/patchcore_pin_bands
 ```
 
-This uses the same final feature input as clustering:
+PatchCore training parameters can be tuned in `configs/pipeline.example.toml`.
+This path uses anomalib's standard CNN patch features and anomaly maps, not the
+DINOv2 + structural image-level vector used by clustering.
 
-```text
-DINOv2 embedding + weighted structural features
+```toml
+patchcore_backbone = "wide_resnet50_2"
+patchcore_layers = ["layer2", "layer3"]
+patchcore_coreset_sampling_ratio = 0.1
+patchcore_num_neighbors = 9
+patchcore_train_batch_size = 32
+patchcore_eval_batch_size = 32
+patchcore_num_workers = 0
+patchcore_image_size = 256
+patchcore_center_crop_size = 224
+patchcore_accelerator = "auto"
+patchcore_devices = "auto"
+patchcore_max_epochs = 1
+patchcore_histogram_bins = 30
+patchcore_montage_samples = 30
+```
+
+Parameter meaning:
+
+- `patchcore_backbone`: torchvision/timm backbone used by anomalib PatchCore.
+- `patchcore_layers`: CNN layers used to build the patch memory bank.
+- `patchcore_coreset_sampling_ratio`: anomalib PatchCore coreset ratio.
+- `patchcore_num_neighbors`: nearest neighbors used by anomalib PatchCore.
+- `patchcore_image_size` / `patchcore_center_crop_size`: anomalib preprocessor size.
+- `patchcore_histogram_bins`: bins used in score distribution plots.
+- `patchcore_montage_samples`: highest-score samples shown per class montage.
+
+Every parameter above can also be overridden from CLI, for example:
+
+```bash
+uv run connector-detection train-patchcore \
+  configs/pipeline.example.toml \
+  --train-image-dir data/patchcore_train \
+  --validation-image-dir data/patchcore_val \
+  --backbone wide_resnet50_2 \
+  --layers layer2,layer3 \
+  --coreset-sampling-ratio 0.05 \
+  --num-neighbors 9
 ```
 
 Optional validation data can use the same class folders. If a path contains
@@ -186,12 +224,12 @@ uv run connector-detection train-patchcore \
 Outputs:
 
 - `patchcore_models.joblib`: per-class feature banks and thresholds
-- `train_patchcore_scores.csv`: leave-one-out training scores
-- `validation_patchcore_scores.csv`: validation scores, predictions, and optional ground truth
+- `patchcore_anomalib_summary.csv`: per-class anomalib metrics and checkpoint paths
 - `patchcore_report.md`: per-class thresholds and validation metrics
-- `plots/*_histogram.png`: score histograms with threshold lines
-- `montage/train/*_top_scores.jpg`: highest-score training samples per class
-- `montage/validation/*_top_scores.jpg`: highest-score validation samples per class
+- `classes/*/anomalib`: anomalib trainer logs and checkpoints per class
+- `classes/*/predictions.csv`: prediction scores when returned by anomalib
+- `classes/*/plots`: score histograms when prediction scores are available
+- `classes/*/montage`: highest-score samples when prediction scores are available
 
 Validate later with an existing model:
 

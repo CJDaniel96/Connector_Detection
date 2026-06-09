@@ -5,6 +5,7 @@ description = "Connector visual inspection research pipeline"
 readme = "README.md"
 requires-python = ">=3.12"
 dependencies = [
+    "anomalib>=2.1.0",
     "hdbscan>=0.8.40",
     "joblib>=1.4.2",
     "matplotlib>=3.9.0",

@@ -8,7 +8,11 @@ from connector_detection.centroid import assign_nearest_centroids, fit_nearest_c
 from connector_detection.clustering import assign_existing_embeddings, fit_clusters
 from connector_detection.config import load_config
 from connector_detection.features import extract_embeddings
-from connector_detection.patchcore import load_and_validate_patchcore, train_patchcore_per_class
+from connector_detection.patchcore import (
+    AnomalibPatchcoreConfig,
+    train_patchcore_per_class,
+    validate_patchcore_per_class,
+)
 from connector_detection.review import export_review_samples
 from connector_detection.voc import crop_pin_bands_from_voc
 from connector_detection.visualize import plot_umap
@@ -205,31 +209,105 @@ def train_patchcore(
         min=1,
         help="How many path components under the root form the class label.",
     ),
-    threshold_quantile: float = typer.Option(
-        0.995,
+    backbone: str | None = typer.Option(
+        None,
+        help="Override config patchcore_backbone.",
+    ),
+    layers: str | None = typer.Option(
+        None,
+        help="Comma-separated layers, for example layer2,layer3.",
+    ),
+    coreset_sampling_ratio: float | None = typer.Option(
+        None,
         min=0.0,
         max=1.0,
-        help="Training leave-one-out score quantile used as anomaly threshold.",
+        help="Override config patchcore_coreset_sampling_ratio.",
+    ),
+    num_neighbors: int | None = typer.Option(
+        None,
+        min=1,
+        help="Override config patchcore_num_neighbors.",
+    ),
+    train_batch_size: int | None = typer.Option(
+        None,
+        min=1,
+        help="Override config patchcore_train_batch_size.",
+    ),
+    eval_batch_size: int | None = typer.Option(
+        None,
+        min=1,
+        help="Override config patchcore_eval_batch_size.",
+    ),
+    num_workers: int | None = typer.Option(
+        None,
+        min=0,
+        help="Override config patchcore_num_workers.",
+    ),
+    anomalib_image_size: int | None = typer.Option(
+        None,
+        min=1,
+        help="Override config patchcore_image_size.",
+    ),
+    center_crop_size: int | None = typer.Option(
+        None,
+        min=1,
+        help="Override config patchcore_center_crop_size.",
+    ),
+    histogram_bins: int | None = typer.Option(
+        None,
+        min=1,
+        help="Override config patchcore_histogram_bins.",
+    ),
+    montage_samples: int | None = typer.Option(
+        None,
+        min=1,
+        help="Override config patchcore_montage_samples.",
     ),
     device: str | None = None,
 ) -> None:
     cfg = load_config(config)
+    anomalib_cfg = AnomalibPatchcoreConfig(
+        backbone=backbone or cfg.patchcore_backbone,
+        layers=tuple((layers.split(",") if layers else cfg.patchcore_layers)),
+        coreset_sampling_ratio=(
+            cfg.patchcore_coreset_sampling_ratio
+            if coreset_sampling_ratio is None
+            else coreset_sampling_ratio
+        ),
+        num_neighbors=cfg.patchcore_num_neighbors if num_neighbors is None else num_neighbors,
+        train_batch_size=(
+            cfg.patchcore_train_batch_size
+            if train_batch_size is None
+            else train_batch_size
+        ),
+        eval_batch_size=(
+            cfg.patchcore_eval_batch_size if eval_batch_size is None else eval_batch_size
+        ),
+        num_workers=cfg.patchcore_num_workers if num_workers is None else num_workers,
+        image_size=cfg.patchcore_image_size if anomalib_image_size is None else anomalib_image_size,
+        center_crop_size=(
+            cfg.patchcore_center_crop_size if center_crop_size is None else center_crop_size
+        ),
+        accelerator=cfg.patchcore_accelerator,
+        devices=cfg.patchcore_devices,
+        max_epochs=cfg.patchcore_max_epochs,
+        normal_split_ratio=cfg.patchcore_normal_split_ratio,
+        test_split_ratio=cfg.patchcore_test_split_ratio,
+        val_split_ratio=cfg.patchcore_val_split_ratio,
+        histogram_bins=(
+            cfg.patchcore_histogram_bins if histogram_bins is None else histogram_bins
+        ),
+        montage_samples=(
+            cfg.patchcore_montage_samples if montage_samples is None else montage_samples
+        ),
+        seed=cfg.random_state,
+    )
     model_path, report_path = train_patchcore_per_class(
         train_image_dir=train_image_dir,
         output_dir=output_dir,
-        model_name=cfg.dinov2_model,
-        image_size=cfg.image_size,
-        batch_size=cfg.batch_size,
-        structural_weight=cfg.structural_weight,
-        projection_profile_dims=cfg.projection_profile_dims,
-        bright_threshold=cfg.bright_threshold,
-        edge_threshold=cfg.edge_threshold,
-        peak_threshold_std=cfg.peak_threshold_std,
-        peak_min_distance=cfg.peak_min_distance,
         class_depth=class_depth,
-        threshold_quantile=threshold_quantile,
         validation_image_dir=validation_image_dir,
-        device=device,
+        config=anomalib_cfg,
     )
     typer.echo(f"Saved {model_path}")
     typer.echo(f"Saved {report_path}")
@@ -255,20 +333,32 @@ def validate_patchcore(
     device: str | None = None,
 ) -> None:
     cfg = load_config(config)
-    report_path = load_and_validate_patchcore(
-        model_path=model,
+    anomalib_cfg = AnomalibPatchcoreConfig(
+        backbone=cfg.patchcore_backbone,
+        layers=cfg.patchcore_layers,
+        coreset_sampling_ratio=cfg.patchcore_coreset_sampling_ratio,
+        num_neighbors=cfg.patchcore_num_neighbors,
+        train_batch_size=cfg.patchcore_train_batch_size,
+        eval_batch_size=cfg.patchcore_eval_batch_size,
+        num_workers=cfg.patchcore_num_workers,
+        image_size=cfg.patchcore_image_size,
+        center_crop_size=cfg.patchcore_center_crop_size,
+        accelerator=cfg.patchcore_accelerator,
+        devices=cfg.patchcore_devices,
+        max_epochs=cfg.patchcore_max_epochs,
+        normal_split_ratio=cfg.patchcore_normal_split_ratio,
+        test_split_ratio=cfg.patchcore_test_split_ratio,
+        val_split_ratio=cfg.patchcore_val_split_ratio,
+        histogram_bins=cfg.patchcore_histogram_bins,
+        montage_samples=cfg.patchcore_montage_samples,
+        seed=cfg.random_state,
+    )
+    report_path = validate_patchcore_per_class(
+        model_index_path=model,
         validation_image_dir=validation_image_dir,
         output_dir=output_dir,
-        model_name=cfg.dinov2_model,
-        image_size=cfg.image_size,
-        batch_size=cfg.batch_size,
-        projection_profile_dims=cfg.projection_profile_dims,
-        bright_threshold=cfg.bright_threshold,
-        edge_threshold=cfg.edge_threshold,
-        peak_threshold_std=cfg.peak_threshold_std,
-        peak_min_distance=cfg.peak_min_distance,
         class_depth=class_depth,
-        device=device,
+        config=anomalib_cfg,
     )
     typer.echo(f"Saved {report_path}")
 

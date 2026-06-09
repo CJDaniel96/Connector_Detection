@@ -23,6 +23,23 @@ class PipelineConfig:
     edge_threshold: float = 0.12
     peak_threshold_std: float = 0.5
     peak_min_distance: int = 3
+    patchcore_backbone: str = "wide_resnet50_2"
+    patchcore_layers: tuple[str, ...] = ("layer2", "layer3")
+    patchcore_coreset_sampling_ratio: float = 0.1
+    patchcore_num_neighbors: int = 9
+    patchcore_train_batch_size: int = 32
+    patchcore_eval_batch_size: int = 32
+    patchcore_num_workers: int = 0
+    patchcore_image_size: int = 256
+    patchcore_center_crop_size: int | None = 224
+    patchcore_accelerator: str = "auto"
+    patchcore_devices: str = "auto"
+    patchcore_max_epochs: int = 1
+    patchcore_normal_split_ratio: float = 0.2
+    patchcore_test_split_ratio: float = 0.2
+    patchcore_val_split_ratio: float = 0.5
+    patchcore_histogram_bins: int = 30
+    patchcore_montage_samples: int = 30
     random_state: int = 42
 
 
@@ -50,5 +67,28 @@ def load_config(path: Path) -> PipelineConfig:
         edge_threshold=float(section.get("edge_threshold", 0.12)),
         peak_threshold_std=float(section.get("peak_threshold_std", 0.5)),
         peak_min_distance=int(section.get("peak_min_distance", 3)),
+        patchcore_backbone=str(section.get("patchcore_backbone", "wide_resnet50_2")),
+        patchcore_layers=tuple(section.get("patchcore_layers", ["layer2", "layer3"])),
+        patchcore_coreset_sampling_ratio=float(
+            section.get("patchcore_coreset_sampling_ratio", 0.1)
+        ),
+        patchcore_num_neighbors=int(section.get("patchcore_num_neighbors", 9)),
+        patchcore_train_batch_size=int(section.get("patchcore_train_batch_size", 32)),
+        patchcore_eval_batch_size=int(section.get("patchcore_eval_batch_size", 32)),
+        patchcore_num_workers=int(section.get("patchcore_num_workers", 0)),
+        patchcore_image_size=int(section.get("patchcore_image_size", 256)),
+        patchcore_center_crop_size=(
+            None
+            if section.get("patchcore_center_crop_size") in (None, "null")
+            else int(section.get("patchcore_center_crop_size", 224))
+        ),
+        patchcore_accelerator=str(section.get("patchcore_accelerator", "auto")),
+        patchcore_devices=str(section.get("patchcore_devices", "auto")),
+        patchcore_max_epochs=int(section.get("patchcore_max_epochs", 1)),
+        patchcore_normal_split_ratio=float(section.get("patchcore_normal_split_ratio", 0.2)),
+        patchcore_test_split_ratio=float(section.get("patchcore_test_split_ratio", 0.2)),
+        patchcore_val_split_ratio=float(section.get("patchcore_val_split_ratio", 0.5)),
+        patchcore_histogram_bins=int(section.get("patchcore_histogram_bins", 30)),
+        patchcore_montage_samples=int(section.get("patchcore_montage_samples", 30)),
         random_state=int(section.get("random_state", 42)),
     )

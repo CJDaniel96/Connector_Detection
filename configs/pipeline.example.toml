@@ -23,4 +23,24 @@ edge_threshold = 0.12
 peak_threshold_std = 0.5
 peak_min_distance = 3
 
+# Anomalib PatchCore settings. This uses anomalib's CNN patch features,
+# not the DINOv2 + structural image-level vector used by clustering.
+patchcore_backbone = "wide_resnet50_2"
+patchcore_layers = ["layer2", "layer3"]
+patchcore_coreset_sampling_ratio = 0.1
+patchcore_num_neighbors = 9
+patchcore_train_batch_size = 32
+patchcore_eval_batch_size = 32
+patchcore_num_workers = 0
+patchcore_image_size = 256
+patchcore_center_crop_size = 224 # use "null" to disable center crop
+patchcore_accelerator = "auto"
+patchcore_devices = "auto"
+patchcore_max_epochs = 1
+patchcore_normal_split_ratio = 0.2
+patchcore_test_split_ratio = 0.2
+patchcore_val_split_ratio = 0.5
+patchcore_histogram_bins = 30
+patchcore_montage_samples = 30
+
 random_state = 42
