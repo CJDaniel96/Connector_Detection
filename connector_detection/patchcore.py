@@ -220,6 +220,9 @@ def _prepare_anomalib_folder_dataset(
         _link_images(normal_paths, test_good_dir)
         _link_images(abnormal_paths, test_bad_dir)
 
+    if train_image_dir is not None and not any(test_good_dir.iterdir()) and not any(test_bad_dir.iterdir()):
+        _link_images([path for path in train_good], test_good_dir)
+
     if train_image_dir is None and not any(test_good_dir.iterdir()) and not any(test_bad_dir.iterdir()):
         raise ValueError(f"No validation images found for label {label}")
     if train_image_dir is not None and not any(train_good_dir.iterdir()):
@@ -342,7 +345,9 @@ def _make_folder_datamodule(label: str, dataset_root: Path, config: AnomalibPatc
         "eval_batch_size": config.eval_batch_size,
         "num_workers": config.num_workers,
         "normal_split_ratio": config.normal_split_ratio,
+        "test_split_mode": "from_dir",
         "test_split_ratio": config.test_split_ratio,
+        "val_split_mode": "none",
         "val_split_ratio": config.val_split_ratio,
         "seed": config.seed,
     }
