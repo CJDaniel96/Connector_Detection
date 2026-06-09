@@ -247,6 +247,17 @@ uv run connector-detection validate-patchcore \
 `patchcore_models.joblib`. Pass `--class-depth` only when you intentionally want
 to override the saved class folder depth.
 
+Validate only one class:
+
+```bash
+uv run connector-detection validate-patchcore \
+  configs/pipeline.example.toml \
+  outputs/patchcore_pin_bands/patchcore_models.joblib \
+  --validation-image-dir data/patchcore_val \
+  --output-dir outputs/patchcore_validation_20pin \
+  --class-label 20pin
+```
+
 ## Train Dual-Branch Inspection
 
 The dual-branch pipeline combines:

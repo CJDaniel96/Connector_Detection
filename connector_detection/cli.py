@@ -336,6 +336,11 @@ def validate_patchcore(
         min=1,
         help="Override the class_depth saved in the trained model index.",
     ),
+    class_label: list[str] | None = typer.Option(
+        None,
+        "--class-label",
+        help="Validate only this class label. Repeat the option to validate multiple classes.",
+    ),
     device: str | None = None,
 ) -> None:
     load_config(config)
@@ -344,6 +349,7 @@ def validate_patchcore(
         validation_image_dir=validation_image_dir,
         output_dir=output_dir,
         class_depth=class_depth,
+        class_labels=class_label,
     )
     typer.echo(f"Saved {report_path}")
 

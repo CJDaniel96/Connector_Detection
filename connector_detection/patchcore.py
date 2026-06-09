@@ -129,6 +129,7 @@ def validate_patchcore_per_class(
     output_dir: Path,
     class_depth: int | None = None,
     config: AnomalibPatchcoreConfig | None = None,
+    class_labels: list[str] | None = None,
 ) -> Path:
     payload = joblib.load(model_index_path)
     cfg = config or payload.get("config") or AnomalibPatchcoreConfig()
@@ -136,7 +137,18 @@ def validate_patchcore_per_class(
     output_dir.mkdir(parents=True, exist_ok=True)
 
     rows = []
-    for label, model_info in payload["class_models"].items():
+    class_models = payload["class_models"]
+    if class_labels:
+        missing = sorted(set(class_labels) - set(class_models))
+        if missing:
+            available = ", ".join(sorted(class_models))
+            raise ValueError(
+                f"Unknown PatchCore class label(s): {', '.join(missing)}. "
+                f"Available labels: {available}"
+            )
+        class_models = {label: class_models[label] for label in class_labels}
+
+    for label, model_info in class_models.items():
         class_output_dir = output_dir / "classes" / _safe_filename(label)
         dataset_root = class_output_dir / "dataset"
         _prepare_anomalib_folder_dataset(
