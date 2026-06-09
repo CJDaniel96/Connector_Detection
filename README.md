@@ -243,6 +243,10 @@ uv run connector-detection validate-patchcore \
   --output-dir outputs/patchcore_validation
 ```
 
+`validate-patchcore` uses the PatchCore parameters and `class_depth` saved in
+`patchcore_models.joblib`. Pass `--class-depth` only when you intentionally want
+to override the saved class folder depth.
+
 ## Train Dual-Branch Inspection
 
 The dual-branch pipeline combines:
