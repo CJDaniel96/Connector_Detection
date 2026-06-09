@@ -107,6 +107,90 @@ def normalize_pin_band_to_up(crop: Image.Image, orientation: str) -> Image.Image
     raise ValueError(f"Unsupported pin band orientation: {orientation}")
 
 
+def rotate_image_orientation(image: Image.Image, source_orientation: str, target_orientation: str) -> Image.Image:
+    orientations = ("up", "right", "down", "left")
+    if source_orientation not in orientations:
+        raise ValueError(f"Unsupported source orientation: {source_orientation}")
+    if target_orientation not in orientations:
+        raise ValueError(f"Unsupported target orientation: {target_orientation}")
+
+    source_index = orientations.index(source_orientation)
+    target_index = orientations.index(target_orientation)
+    clockwise_turns = (target_index - source_index) % len(orientations)
+    if clockwise_turns == 0:
+        return image
+    if clockwise_turns == 1:
+        return image.transpose(Image.Transpose.ROTATE_270)
+    if clockwise_turns == 2:
+        return image.transpose(Image.Transpose.ROTATE_180)
+    return image.transpose(Image.Transpose.ROTATE_90)
+
+
+def rotate_images_from_voc_orientation(
+    xml_dir: Path,
+    image_dir: Path,
+    output_dir: Path,
+    label: str,
+    target_orientation: str = "up",
+    image_format: str = "png",
+) -> Path:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    rows = []
+
+    xml_paths = sorted(xml_dir.rglob("*.xml"))
+    if not xml_paths:
+        raise ValueError(f"No XML files found under {xml_dir}")
+
+    for xml_path in xml_paths:
+        annotation = parse_voc_xml(xml_path)
+        image_path = find_image_path(annotation, image_dir)
+
+        with Image.open(image_path) as raw_image:
+            image = ImageOps.exif_transpose(raw_image).convert("RGB")
+            image_width, image_height = image.size
+
+            boxes = [box for box in annotation.boxes if box.label == label]
+            for box_index, box in enumerate(boxes):
+                orientation = classify_pin_band_orientation(box, image_width, image_height)
+                rotated = rotate_image_orientation(image, orientation, target_orientation)
+                output_name = (
+                    f"{image_path.stem}_{box_index}_{box.label}"
+                    f"_image_from-{orientation}_to-{target_orientation}.{image_format.lower()}"
+                )
+                rotated_path = output_dir / output_name
+                rotated.save(rotated_path)
+
+                rows.append(
+                    {
+                        "xml_path": str(xml_path),
+                        "image_path": str(image_path),
+                        "rotated_image_path": str(rotated_path),
+                        "label": box.label,
+                        "source_orientation": orientation,
+                        "target_orientation": target_orientation,
+                        "xmin": box.xmin,
+                        "ymin": box.ymin,
+                        "xmax": box.xmax,
+                        "ymax": box.ymax,
+                        "bbox_width": box.width,
+                        "bbox_height": box.height,
+                        "center_x": box.center_x,
+                        "center_y": box.center_y,
+                        "image_width": image_width,
+                        "image_height": image_height,
+                        "rotated_image_width": rotated.width,
+                        "rotated_image_height": rotated.height,
+                    }
+                )
+
+    if not rows:
+        raise ValueError(f"No VOC objects with label {label} found under {xml_dir}")
+
+    manifest_path = output_dir / "rotated_images_manifest.csv"
+    pd.DataFrame(rows).to_csv(manifest_path, index=False)
+    return manifest_path
+
+
 def crop_pin_bands_from_voc(
     xml_dir: Path,
     image_dir: Path,

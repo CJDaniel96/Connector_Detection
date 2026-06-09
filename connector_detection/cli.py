@@ -20,7 +20,7 @@ from connector_detection.patchcore import (
 )
 from connector_detection.review import export_review_samples
 from connector_detection.structural_features import StructuralFeatureConfig
-from connector_detection.voc import crop_pin_bands_from_voc
+from connector_detection.voc import crop_pin_bands_from_voc, rotate_images_from_voc_orientation
 from connector_detection.visualize import plot_umap
 
 app = typer.Typer(help="Connector anomaly research pipeline.")
@@ -120,6 +120,35 @@ def crop_pin_bands(
         output_dir=output_dir,
         label=label,
         padding=padding,
+        image_format=image_format,
+    )
+    typer.echo(f"Saved {manifest_path}")
+
+
+@app.command()
+def rotate_images_by_voc(
+    xml_dir: Path = typer.Option(..., help="Directory containing PASCAL VOC XML files."),
+    image_dir: Path = typer.Option(..., help="Directory containing source images."),
+    output_dir: Path = typer.Option(
+        Path("outputs/rotated_images"),
+        help="Output directory for full images rotated to the target orientation.",
+    ),
+    label: str = typer.Option(
+        ...,
+        help="VOC class name whose bounding box position defines the source orientation.",
+    ),
+    target_orientation: str = typer.Option(
+        "up",
+        help="Target orientation: up, right, down, or left.",
+    ),
+    image_format: str = typer.Option("png", help="Output image format, for example png or jpg."),
+) -> None:
+    manifest_path = rotate_images_from_voc_orientation(
+        xml_dir=xml_dir,
+        image_dir=image_dir,
+        output_dir=output_dir,
+        label=label,
+        target_orientation=target_orientation,
         image_format=image_format,
     )
     typer.echo(f"Saved {manifest_path}")

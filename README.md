@@ -210,6 +210,24 @@ Normalization rule:
 - `left`: rotate 90 degrees clockwise.
 - `right`: rotate 90 degrees counter-clockwise.
 
+## Rotate Full Images From PASCAL VOC Box Position
+
+To rotate the whole source image according to the center position of a specific
+VOC class, use `rotate-images-by-voc`. For example, this rotates images so the
+selected `pin_band` bbox orientation becomes `up`:
+
+```bash
+uv run connector-detection rotate-images-by-voc \
+  --xml-dir data/pin_band_xml \
+  --image-dir data/connector_images \
+  --output-dir outputs/rotated_connector_images \
+  --label pin_band \
+  --target-orientation up
+```
+
+If one image has multiple matching boxes, one rotated image is written per box.
+The output manifest is `outputs/rotated_connector_images/rotated_images_manifest.csv`.
+
 ## Nearest-Centroid Group Assignment
 
 For manual class assignment rather than anomaly detection:
