@@ -8,6 +8,7 @@ import tempfile
 from typing import Any
 
 import joblib
+import numpy as np
 import pandas as pd
 from PIL import Image, ImageDraw, ImageOps
 
@@ -417,8 +418,9 @@ def _predict_and_report(
         return None
 
     rows = []
+    heatmap_dir = output_dir / "heatmaps"
     for batch in [] if predictions is None else predictions:
-        rows.extend(_prediction_batch_to_rows(batch))
+        rows.extend(_prediction_batch_to_rows(batch, heatmap_dir=heatmap_dir))
     if not rows:
         return None
     df = pd.DataFrame(rows)
@@ -429,7 +431,10 @@ def _predict_and_report(
     return path
 
 
-def _prediction_batch_to_rows(batch: Any) -> list[dict[str, Any]]:
+def _prediction_batch_to_rows(
+    batch: Any,
+    heatmap_dir: Path | None = None,
+) -> list[dict[str, Any]]:
     if isinstance(batch, dict):
         data = batch
     elif hasattr(batch, "__dict__"):
@@ -441,14 +446,27 @@ def _prediction_batch_to_rows(batch: Any) -> list[dict[str, Any]]:
     scores = _to_list(_first_present(data, ("pred_score", "anomaly_score", "score")))
     labels = _to_list(_first_present(data, ("label", "gt_label")))
     pred_labels = _to_list(data.get("pred_label"))
+    anomaly_maps = _to_list(_first_present(data, ("anomaly_map", "pred_mask", "heatmap")))
     rows = []
     for index, image_path in enumerate(paths):
+        heatmap_path = None
+        overlay_path = None
+        anomaly_map = _value_at(anomaly_maps, index)
+        if heatmap_dir is not None and anomaly_map is not None:
+            heatmap_path, overlay_path = _save_heatmap_outputs(
+                image_path=Path(image_path),
+                anomaly_map=anomaly_map,
+                output_dir=heatmap_dir,
+                index=index,
+            )
         rows.append(
             {
                 "image_path": str(image_path),
                 "pred_score": _value_at(scores, index),
                 "label": _value_at(labels, index),
                 "pred_label": _value_at(pred_labels, index),
+                "heatmap_path": str(heatmap_path) if heatmap_path else "",
+                "overlay_path": str(overlay_path) if overlay_path else "",
             }
         )
     return rows
@@ -479,8 +497,66 @@ def _value_at(values: list[Any], index: int) -> Any:
         return None
     value = values[index]
     if hasattr(value, "item"):
-        return value.item()
+        try:
+            return value.item()
+        except ValueError:
+            return value
     return value
+
+
+def _save_heatmap_outputs(
+    image_path: Path,
+    anomaly_map: Any,
+    output_dir: Path,
+    index: int,
+) -> tuple[Path, Path] | tuple[None, None]:
+    heatmap = _anomaly_map_to_array(anomaly_map)
+    if heatmap is None:
+        return None, None
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"{image_path.stem}_{index:04d}"
+    heatmap_path = output_dir / f"{stem}_heatmap.png"
+    overlay_path = output_dir / f"{stem}_overlay.png"
+
+    colored = _colorize_heatmap(heatmap)
+    colored.save(heatmap_path)
+
+    if image_path.exists():
+        with Image.open(image_path) as raw_image:
+            image = ImageOps.exif_transpose(raw_image).convert("RGB")
+            overlay_heatmap = colored.resize(image.size, Image.Resampling.BILINEAR)
+            overlay = Image.blend(image, overlay_heatmap, alpha=0.45)
+            overlay.save(overlay_path)
+    else:
+        colored.save(overlay_path)
+    return heatmap_path, overlay_path
+
+
+def _anomaly_map_to_array(anomaly_map: Any) -> np.ndarray | None:
+    if hasattr(anomaly_map, "detach"):
+        anomaly_map = anomaly_map.detach().cpu().numpy()
+    array = np.asarray(anomaly_map)
+    if array.size == 0:
+        return None
+    array = np.squeeze(array)
+    if array.ndim == 3:
+        array = array[0] if array.shape[0] in (1, 3) else array[:, :, 0]
+    if array.ndim != 2:
+        return None
+    array = array.astype(np.float32)
+    array = array - float(np.nanmin(array))
+    max_value = float(np.nanmax(array))
+    if max_value > 0:
+        array = array / max_value
+    return np.nan_to_num(array, nan=0.0, posinf=1.0, neginf=0.0)
+
+
+def _colorize_heatmap(heatmap: np.ndarray) -> Image.Image:
+    cmap = plt.get_cmap("jet")
+    rgba = cmap(np.clip(heatmap, 0.0, 1.0))
+    rgb = (rgba[:, :, :3] * 255).astype(np.uint8)
+    return Image.fromarray(rgb, mode="RGB")
 
 
 def _flatten_anomalib_metrics(result: Any) -> dict[str, Any]:
@@ -527,6 +603,7 @@ def write_anomalib_patchcore_report(
             "- `classes/*/predictions.csv`: prediction scores when anomalib returns prediction batches",
             "- `classes/*/plots`: score histograms when prediction scores are available",
             "- `classes/*/montage`: highest-score image montage when prediction scores are available",
+            "- `classes/*/heatmaps`: anomaly heatmaps and image overlays when anomalib returns anomaly maps",
         ]
     )
     if validation_image_dir is not None:
