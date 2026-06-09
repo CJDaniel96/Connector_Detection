@@ -412,7 +412,7 @@ def _predict_and_report(
         return None
 
     rows = []
-    for batch in predictions or []:
+    for batch in [] if predictions is None else predictions:
         rows.extend(_prediction_batch_to_rows(batch))
     if not rows:
         return None
@@ -432,9 +432,9 @@ def _prediction_batch_to_rows(batch: Any) -> list[dict[str, Any]]:
     else:
         return []
 
-    paths = _to_list(data.get("image_path") or data.get("path") or data.get("image_paths"))
-    scores = _to_list(data.get("pred_score") or data.get("anomaly_score") or data.get("score"))
-    labels = _to_list(data.get("label") or data.get("gt_label"))
+    paths = _to_list(_first_present(data, ("image_path", "path", "image_paths")))
+    scores = _to_list(_first_present(data, ("pred_score", "anomaly_score", "score")))
+    labels = _to_list(_first_present(data, ("label", "gt_label")))
     pred_labels = _to_list(data.get("pred_label"))
     rows = []
     for index, image_path in enumerate(paths):
@@ -447,6 +447,13 @@ def _prediction_batch_to_rows(batch: Any) -> list[dict[str, Any]]:
             }
         )
     return rows
+
+
+def _first_present(data: dict[str, Any], keys: tuple[str, ...]) -> Any:
+    for key in keys:
+        if key in data and data[key] is not None:
+            return data[key]
+    return None
 
 
 def _to_list(value: Any) -> list[Any]:
