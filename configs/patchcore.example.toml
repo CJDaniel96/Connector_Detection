@@ -1,0 +1,23 @@
+[pipeline]
+# PatchCore baseline config. This path uses anomalib's Patchcore model and
+# anomalib trainer outputs; DINOv2/structural features are not used here.
+image_dir = "data/pin_band_train"
+output_dir = "outputs/patchcore_pin_bands"
+
+patchcore_backbone = "wide_resnet50_2"
+patchcore_layers = ["layer2", "layer3"]
+patchcore_coreset_sampling_ratio = 0.1
+patchcore_num_neighbors = 9
+patchcore_train_batch_size = 32
+patchcore_eval_batch_size = 32
+patchcore_num_workers = 0
+patchcore_image_size = [256, 512] # [height, width]; single int also works
+patchcore_center_crop_size = [224, 448] # use "null" to disable center crop
+patchcore_accelerator = "auto"
+patchcore_devices = "auto"
+patchcore_max_epochs = 1
+patchcore_normal_split_ratio = 0.2
+patchcore_test_split_ratio = 0.2
+patchcore_val_split_ratio = 0.5
+
+random_state = 42

@@ -21,6 +21,10 @@ class PipelineConfig:
     review_samples_per_cluster: int = 30
     unknown_distance_quantile: float = 0.995
     structural_weight: float = 2.0
+    dinobank_pca_components: int = 50
+    dinobank_threshold_quantile: float = 0.995
+    dinobank_histogram_bins: int = 30
+    dinobank_montage_samples: int = 30
     projection_profile_dims: int = 128
     bright_threshold: float = 0.65
     edge_threshold: float = 0.12
@@ -73,6 +77,10 @@ def load_config(path: Path) -> PipelineConfig:
         review_samples_per_cluster=int(section.get("review_samples_per_cluster", 30)),
         unknown_distance_quantile=float(section.get("unknown_distance_quantile", 0.995)),
         structural_weight=float(section.get("structural_weight", 2.0)),
+        dinobank_pca_components=int(section.get("dinobank_pca_components", section.get("pca_components", 50))),
+        dinobank_threshold_quantile=float(section.get("dinobank_threshold_quantile", 0.995)),
+        dinobank_histogram_bins=int(section.get("dinobank_histogram_bins", 30)),
+        dinobank_montage_samples=int(section.get("dinobank_montage_samples", 30)),
         projection_profile_dims=int(section.get("projection_profile_dims", 128)),
         bright_threshold=float(section.get("bright_threshold", 0.65)),
         edge_threshold=float(section.get("edge_threshold", 0.12)),

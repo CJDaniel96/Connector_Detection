@@ -2,24 +2,13 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
-import os
 import shutil
-import tempfile
 from typing import Any
 
 import joblib
-import numpy as np
 import pandas as pd
-from PIL import Image, ImageDraw, ImageOps
 
 from connector_detection.images import list_images
-
-os.environ.setdefault(
-    "MPLCONFIGDIR",
-    str(Path(tempfile.gettempdir()) / "connector_detection_matplotlib"),
-)
-import matplotlib.pyplot as plt
-
 
 GOOD_TOKENS = {"good", "ok", "normal", "pass"}
 ANOMALY_TOKENS = {
@@ -436,22 +425,18 @@ def _predict_and_report(
         return None
 
     rows = []
-    heatmap_dir = output_dir / "heatmaps"
     for batch in [] if predictions is None else predictions:
-        rows.extend(_prediction_batch_to_rows(batch, heatmap_dir=heatmap_dir))
+        rows.extend(_prediction_batch_to_rows(batch))
     if not rows:
         return None
     df = pd.DataFrame(rows)
     path = output_dir / "predictions.csv"
     df.to_csv(path, index=False)
-    _plot_prediction_histogram(df, output_dir / "plots", config.histogram_bins)
-    _export_prediction_montage(df, output_dir / "montage", config.montage_samples)
     return path
 
 
 def _prediction_batch_to_rows(
     batch: Any,
-    heatmap_dir: Path | None = None,
 ) -> list[dict[str, Any]]:
     if isinstance(batch, dict):
         data = batch
@@ -464,29 +449,14 @@ def _prediction_batch_to_rows(
     scores = _to_list(_first_present(data, ("pred_score", "anomaly_score", "score")))
     labels = _to_list(_first_present(data, ("label", "gt_label")))
     pred_labels = _to_list(data.get("pred_label"))
-    anomaly_maps = _to_list(_first_present(data, ("anomaly_map", "pred_mask", "heatmap")))
     rows = []
     for index, image_path in enumerate(paths):
-        raw_heatmap_path = None
-        heatmap_path = None
-        overlay_path = None
-        anomaly_map = _value_at(anomaly_maps, index)
-        if heatmap_dir is not None and anomaly_map is not None:
-            raw_heatmap_path, heatmap_path, overlay_path = _save_heatmap_outputs(
-                image_path=Path(image_path),
-                anomaly_map=anomaly_map,
-                output_dir=heatmap_dir,
-                index=index,
-            )
         rows.append(
             {
                 "image_path": str(image_path),
                 "pred_score": _value_at(scores, index),
                 "label": _value_at(labels, index),
                 "pred_label": _value_at(pred_labels, index),
-                "raw_heatmap_path": str(raw_heatmap_path) if raw_heatmap_path else "",
-                "heatmap_path": str(heatmap_path) if heatmap_path else "",
-                "overlay_path": str(overlay_path) if overlay_path else "",
             }
         )
     return rows
@@ -524,82 +494,6 @@ def _value_at(values: list[Any], index: int) -> Any:
     return value
 
 
-def _save_heatmap_outputs(
-    image_path: Path,
-    anomaly_map: Any,
-    output_dir: Path,
-    index: int,
-) -> tuple[Path, Path, Path] | tuple[None, None, None]:
-    heatmap = _anomaly_map_to_array(anomaly_map)
-    if heatmap is None:
-        return None, None, None
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    stem = f"{image_path.stem}_{index:04d}"
-    raw_heatmap_path = output_dir / f"{stem}_raw_heatmap.png"
-    heatmap_path = output_dir / f"{stem}_heatmap.png"
-    overlay_path = output_dir / f"{stem}_overlay.png"
-
-    colored = _visualize_anomalib_heatmap(heatmap)
-    colored.save(raw_heatmap_path)
-
-    if image_path.exists():
-        with Image.open(image_path) as raw_image:
-            image = ImageOps.exif_transpose(raw_image).convert("RGB")
-            overlay = _overlay_anomalib_heatmap(image, colored)
-            overlay.save(heatmap_path)
-            overlay.save(overlay_path)
-    else:
-        colored.save(heatmap_path)
-        colored.save(overlay_path)
-    return raw_heatmap_path, heatmap_path, overlay_path
-
-
-def _anomaly_map_to_array(anomaly_map: Any) -> np.ndarray | None:
-    if hasattr(anomaly_map, "detach"):
-        anomaly_map = anomaly_map.detach().cpu().numpy()
-    array = np.asarray(anomaly_map)
-    if array.size == 0:
-        return None
-    array = np.squeeze(array)
-    if array.ndim == 3:
-        array = array[0] if array.shape[0] in (1, 3) else array[:, :, 0]
-    if array.ndim != 2:
-        return None
-    array = array.astype(np.float32)
-    array = array - float(np.nanmin(array))
-    max_value = float(np.nanmax(array))
-    if max_value > 0:
-        array = array / max_value
-    return np.nan_to_num(array, nan=0.0, posinf=1.0, neginf=0.0)
-
-
-def _colorize_heatmap(heatmap: np.ndarray) -> Image.Image:
-    cmap = plt.get_cmap("jet")
-    rgba = cmap(np.clip(heatmap, 0.0, 1.0))
-    rgb = (rgba[:, :, :3] * 255).astype(np.uint8)
-    return Image.fromarray(rgb, mode="RGB")
-
-
-def _visualize_anomalib_heatmap(heatmap: np.ndarray) -> Image.Image:
-    try:
-        from anomalib.visualization.image.functional import visualize_anomaly_map
-
-        return visualize_anomaly_map(heatmap, normalize=True, colormap=True)
-    except Exception:
-        return _colorize_heatmap(heatmap)
-
-
-def _overlay_anomalib_heatmap(image: Image.Image, heatmap: Image.Image) -> Image.Image:
-    heatmap = heatmap.resize(image.size, Image.Resampling.BILINEAR)
-    try:
-        from anomalib.visualization.image.functional import overlay_images
-
-        return overlay_images(image, heatmap, alpha=0.45).convert("RGB")
-    except Exception:
-        return Image.blend(image, heatmap, alpha=0.45)
-
-
 def _flatten_anomalib_metrics(result: Any) -> dict[str, Any]:
     if isinstance(result, list) and result:
         result = result[0]
@@ -625,6 +519,8 @@ def write_anomalib_patchcore_report(
     lines.append("## Parameters")
     lines.append("")
     for key, value in config.__dict__.items():
+        if key in {"histogram_bins", "montage_samples"}:
+            continue
         lines.append(f"- `{key}`: {value}")
     lines.append("")
     lines.append("## Classes")
@@ -642,9 +538,7 @@ def write_anomalib_patchcore_report(
             "- `patchcore_anomalib_summary.csv`: per-class test metrics and artifact paths",
             "- `classes/*/anomalib`: anomalib trainer output per class",
             "- `classes/*/predictions.csv`: prediction scores when anomalib returns prediction batches",
-            "- `classes/*/plots`: score histograms when prediction scores are available",
-            "- `classes/*/montage`: highest-score image montage when prediction scores are available",
-            "- `classes/*/heatmaps`: anomalib-style image overlays plus raw heatmaps when anomaly maps are returned",
+            "- Anomalib visual artifacts, logs, and checkpoints are written under `classes/*/anomalib`",
         ]
     )
     if validation_image_dir is not None:
@@ -652,56 +546,6 @@ def write_anomalib_patchcore_report(
     report_path = output_dir / "patchcore_report.md"
     report_path.write_text("\n".join(lines))
     return report_path
-
-
-def _plot_prediction_histogram(df: pd.DataFrame, output_dir: Path, bins: int) -> None:
-    if "pred_score" not in df or df["pred_score"].dropna().empty:
-        return
-    output_dir.mkdir(parents=True, exist_ok=True)
-    plt.figure(figsize=(8, 5))
-    pd.to_numeric(df["pred_score"], errors="coerce").dropna().hist(bins=bins)
-    plt.title("Anomalib PatchCore prediction scores")
-    plt.xlabel("pred_score")
-    plt.ylabel("count")
-    plt.tight_layout()
-    plt.savefig(output_dir / "prediction_score_histogram.png", dpi=160)
-    plt.close()
-
-
-def _export_prediction_montage(df: pd.DataFrame, output_dir: Path, samples: int) -> None:
-    if "pred_score" not in df or "image_path" not in df:
-        return
-    scored = df.copy()
-    scored["pred_score"] = pd.to_numeric(scored["pred_score"], errors="coerce")
-    scored = scored.dropna(subset=["pred_score"]).sort_values("pred_score", ascending=False)
-    if scored.empty:
-        return
-    output_dir.mkdir(parents=True, exist_ok=True)
-    scored = scored.head(samples)
-    tile_size = (180, 120)
-    columns = 5
-    rows = max(1, (len(scored) + columns - 1) // columns)
-    montage = Image.new("RGB", (columns * tile_size[0], rows * tile_size[1]), "white")
-    draw = ImageDraw.Draw(montage)
-    for index, row in enumerate(scored.itertuples(index=False)):
-        image_path = Path(row.image_path)
-        if not image_path.exists():
-            continue
-        with Image.open(image_path) as raw_image:
-            image = ImageOps.exif_transpose(raw_image).convert("RGB")
-            image.thumbnail(tile_size, Image.Resampling.BICUBIC)
-            tile_x = (index % columns) * tile_size[0]
-            tile_y = (index // columns) * tile_size[1]
-            x = tile_x + (tile_size[0] - image.width) // 2
-            y = tile_y + (tile_size[1] - image.height) // 2
-            montage.paste(image, (x, y))
-            draw.rectangle(
-                [tile_x, tile_y, tile_x + tile_size[0] - 1, tile_y + tile_size[1] - 1],
-                outline=(220, 0, 0),
-                width=2,
-            )
-            draw.text((tile_x + 4, tile_y + 4), f"{row.pred_score:.3f}", fill=(0, 0, 0))
-    montage.save(output_dir / "top_prediction_scores.jpg")
 
 
 def _safe_filename(label: str) -> str:

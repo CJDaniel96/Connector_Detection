@@ -1,0 +1,24 @@
+[pipeline]
+# DINOv2 + structural image-level bank baseline config. This path does not use
+# PatchCore or anomalib.
+image_dir = "data/pin_band_train"
+output_dir = "outputs/dinobank_pin_bands"
+
+image_size = 224
+dinov2_model = "facebook/dinov2-small"
+batch_size = 16
+
+structural_weight = 2.0
+projection_profile_dims = 128
+structural_image_size = [20, 512] # [height, width], or "null" to use original size
+bright_threshold = 0.65
+edge_threshold = 0.12
+peak_threshold_std = 0.5
+peak_min_distance = 3
+
+dinobank_pca_components = 50
+dinobank_threshold_quantile = 0.995
+dinobank_histogram_bins = 30
+dinobank_montage_samples = 30
+
+random_state = 42

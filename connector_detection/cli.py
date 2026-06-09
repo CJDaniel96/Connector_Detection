@@ -6,10 +6,12 @@ import typer
 
 from connector_detection.centroid import assign_nearest_centroids, fit_nearest_centroids
 from connector_detection.clustering import assign_existing_embeddings, fit_clusters
+from connector_detection.compare import compare_baselines as compare_baselines_pipeline
 from connector_detection.config import load_config
 from connector_detection.dual_branch import StructuralFusionConfig
 from connector_detection.dual_branch import train_dual_branch as train_dual_branch_pipeline
 from connector_detection.dual_branch import validate_dual_branch as validate_dual_branch_pipeline
+from connector_detection.dinobank import DinoBankConfig, train_dinobank, validate_dinobank
 from connector_detection.features import extract_embeddings
 from connector_detection.patchcore import (
     AnomalibPatchcoreConfig,
@@ -195,8 +197,9 @@ def assign_centroids(
     typer.echo(f"Saved {output_path}")
 
 
-@app.command()
-def train_patchcore(
+@app.command("patchcore-train")
+@app.command("train-patchcore", hidden=True)
+def patchcore_train(
     config: Path,
     train_image_dir: Path = typer.Option(
         ...,
@@ -259,54 +262,20 @@ def train_patchcore(
         min=1,
         help="Override config patchcore_center_crop_size.",
     ),
-    histogram_bins: int | None = typer.Option(
-        None,
-        min=1,
-        help="Override config patchcore_histogram_bins.",
-    ),
-    montage_samples: int | None = typer.Option(
-        None,
-        min=1,
-        help="Override config patchcore_montage_samples.",
-    ),
     device: str | None = None,
 ) -> None:
     cfg = load_config(config)
-    anomalib_cfg = AnomalibPatchcoreConfig(
-        backbone=backbone or cfg.patchcore_backbone,
-        layers=tuple((layers.split(",") if layers else cfg.patchcore_layers)),
-        coreset_sampling_ratio=(
-            cfg.patchcore_coreset_sampling_ratio
-            if coreset_sampling_ratio is None
-            else coreset_sampling_ratio
-        ),
-        num_neighbors=cfg.patchcore_num_neighbors if num_neighbors is None else num_neighbors,
-        train_batch_size=(
-            cfg.patchcore_train_batch_size
-            if train_batch_size is None
-            else train_batch_size
-        ),
-        eval_batch_size=(
-            cfg.patchcore_eval_batch_size if eval_batch_size is None else eval_batch_size
-        ),
-        num_workers=cfg.patchcore_num_workers if num_workers is None else num_workers,
-        image_size=cfg.patchcore_image_size if anomalib_image_size is None else anomalib_image_size,
-        center_crop_size=(
-            cfg.patchcore_center_crop_size if center_crop_size is None else center_crop_size
-        ),
-        accelerator=cfg.patchcore_accelerator,
-        devices=cfg.patchcore_devices,
-        max_epochs=cfg.patchcore_max_epochs,
-        normal_split_ratio=cfg.patchcore_normal_split_ratio,
-        test_split_ratio=cfg.patchcore_test_split_ratio,
-        val_split_ratio=cfg.patchcore_val_split_ratio,
-        histogram_bins=(
-            cfg.patchcore_histogram_bins if histogram_bins is None else histogram_bins
-        ),
-        montage_samples=(
-            cfg.patchcore_montage_samples if montage_samples is None else montage_samples
-        ),
-        seed=cfg.random_state,
+    anomalib_cfg = _patchcore_config_from_pipeline(
+        cfg,
+        backbone=backbone,
+        layers=layers,
+        coreset_sampling_ratio=coreset_sampling_ratio,
+        num_neighbors=num_neighbors,
+        train_batch_size=train_batch_size,
+        eval_batch_size=eval_batch_size,
+        num_workers=num_workers,
+        image_size=anomalib_image_size,
+        center_crop_size=center_crop_size,
     )
     model_path, report_path = train_patchcore_per_class(
         train_image_dir=train_image_dir,
@@ -319,8 +288,9 @@ def train_patchcore(
     typer.echo(f"Saved {report_path}")
 
 
-@app.command()
-def validate_patchcore(
+@app.command("patchcore-validate")
+@app.command("validate-patchcore", hidden=True)
+def patchcore_validate(
     config: Path,
     model: Path,
     validation_image_dir: Path = typer.Option(
@@ -354,7 +324,109 @@ def validate_patchcore(
     typer.echo(f"Saved {report_path}")
 
 
-@app.command()
+@app.command("dinobank-train")
+def dinobank_train(
+    config: Path,
+    train_image_dir: Path = typer.Option(
+        ...,
+        help="Root folder whose child folders are class labels. Normal images build the bank.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("outputs/dinobank"),
+        help="Output directory for DINOv2 + structural bank artifacts.",
+    ),
+    validation_image_dir: Path | None = typer.Option(
+        None,
+        help="Optional validation root with matching class folders.",
+    ),
+    class_depth: int = typer.Option(
+        1,
+        min=1,
+        help="How many path components under the root form the class label.",
+    ),
+    class_label: list[str] | None = typer.Option(
+        None,
+        "--class-label",
+        help="Train only this class label. Repeat the option to train multiple classes.",
+    ),
+    device: str | None = None,
+) -> None:
+    cfg = load_config(config)
+    model_path, report_path = train_dinobank(
+        train_image_dir=train_image_dir,
+        output_dir=output_dir,
+        config=_dinobank_config_from_pipeline(cfg),
+        class_depth=class_depth,
+        validation_image_dir=validation_image_dir,
+        class_labels=class_label,
+        device=device,
+    )
+    typer.echo(f"Saved {model_path}")
+    typer.echo(f"Saved {report_path}")
+
+
+@app.command("dinobank-validate")
+def dinobank_validate(
+    config: Path,
+    model: Path,
+    validation_image_dir: Path = typer.Option(
+        ...,
+        help="Validation root with matching class folders.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("outputs/dinobank_validation"),
+        help="Output directory for DINO bank validation artifacts.",
+    ),
+    class_depth: int | None = typer.Option(
+        None,
+        min=1,
+        help="Override the class_depth saved in the trained model.",
+    ),
+    class_label: list[str] | None = typer.Option(
+        None,
+        "--class-label",
+        help="Validate only this class label. Repeat the option to validate multiple classes.",
+    ),
+    device: str | None = None,
+) -> None:
+    load_config(config)
+    report_path = validate_dinobank(
+        model_path=model,
+        validation_image_dir=validation_image_dir,
+        output_dir=output_dir,
+        class_depth=class_depth,
+        class_labels=class_label,
+        device=device,
+    )
+    typer.echo(f"Saved {report_path}")
+
+
+@app.command("compare-baselines")
+def compare_baselines(
+    patchcore_predictions: Path = typer.Option(
+        ...,
+        help="PatchCore predictions.csv or output directory containing predictions.csv files.",
+    ),
+    dinobank_predictions: Path = typer.Option(
+        ...,
+        help="DINO bank predictions.csv or output directory containing predictions.csv files.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("outputs/baseline_comparison"),
+        help="Output directory for comparison CSVs, metrics, plots, and report.",
+    ),
+) -> None:
+    comparison_path, metrics_path, plot_path = compare_baselines_pipeline(
+        patchcore_predictions=patchcore_predictions,
+        dinobank_predictions=dinobank_predictions,
+        output_dir=output_dir,
+    )
+    typer.echo(f"Saved {comparison_path}")
+    typer.echo(f"Saved {metrics_path}")
+    typer.echo(f"Saved {plot_path}")
+
+
+@app.command(hidden=True)
 def train_dual_branch(
     config: Path,
     train_image_dir: Path = typer.Option(
@@ -389,7 +461,7 @@ def train_dual_branch(
     typer.echo(f"Saved {report_path}")
 
 
-@app.command()
+@app.command(hidden=True)
 def validate_dual_branch(
     config: Path,
     model: Path,
@@ -417,17 +489,32 @@ def validate_dual_branch(
     typer.echo(f"Saved {report_path}")
 
 
-def _patchcore_config_from_pipeline(cfg) -> AnomalibPatchcoreConfig:
+def _patchcore_config_from_pipeline(
+    cfg,
+    backbone: str | None = None,
+    layers: str | None = None,
+    coreset_sampling_ratio: float | None = None,
+    num_neighbors: int | None = None,
+    train_batch_size: int | None = None,
+    eval_batch_size: int | None = None,
+    num_workers: int | None = None,
+    image_size: int | None = None,
+    center_crop_size: int | None = None,
+) -> AnomalibPatchcoreConfig:
     return AnomalibPatchcoreConfig(
-        backbone=cfg.patchcore_backbone,
-        layers=cfg.patchcore_layers,
-        coreset_sampling_ratio=cfg.patchcore_coreset_sampling_ratio,
-        num_neighbors=cfg.patchcore_num_neighbors,
-        train_batch_size=cfg.patchcore_train_batch_size,
-        eval_batch_size=cfg.patchcore_eval_batch_size,
-        num_workers=cfg.patchcore_num_workers,
-        image_size=cfg.patchcore_image_size,
-        center_crop_size=cfg.patchcore_center_crop_size,
+        backbone=backbone or cfg.patchcore_backbone,
+        layers=tuple((layers.split(",") if layers else cfg.patchcore_layers)),
+        coreset_sampling_ratio=(
+            cfg.patchcore_coreset_sampling_ratio
+            if coreset_sampling_ratio is None
+            else coreset_sampling_ratio
+        ),
+        num_neighbors=cfg.patchcore_num_neighbors if num_neighbors is None else num_neighbors,
+        train_batch_size=cfg.patchcore_train_batch_size if train_batch_size is None else train_batch_size,
+        eval_batch_size=cfg.patchcore_eval_batch_size if eval_batch_size is None else eval_batch_size,
+        num_workers=cfg.patchcore_num_workers if num_workers is None else num_workers,
+        image_size=cfg.patchcore_image_size if image_size is None else image_size,
+        center_crop_size=cfg.patchcore_center_crop_size if center_crop_size is None else center_crop_size,
         accelerator=cfg.patchcore_accelerator,
         devices=cfg.patchcore_devices,
         max_epochs=cfg.patchcore_max_epochs,
@@ -437,6 +524,26 @@ def _patchcore_config_from_pipeline(cfg) -> AnomalibPatchcoreConfig:
         histogram_bins=cfg.patchcore_histogram_bins,
         montage_samples=cfg.patchcore_montage_samples,
         seed=cfg.random_state,
+    )
+
+
+def _dinobank_config_from_pipeline(cfg) -> DinoBankConfig:
+    return DinoBankConfig(
+        dinov2_model=cfg.dinov2_model,
+        image_size=cfg.image_size,
+        batch_size=cfg.batch_size,
+        structural_weight=cfg.structural_weight,
+        projection_profile_dims=cfg.projection_profile_dims,
+        bright_threshold=cfg.bright_threshold,
+        edge_threshold=cfg.edge_threshold,
+        peak_threshold_std=cfg.peak_threshold_std,
+        peak_min_distance=cfg.peak_min_distance,
+        structural_image_size=cfg.structural_image_size,
+        pca_components=cfg.dinobank_pca_components,
+        threshold_quantile=cfg.dinobank_threshold_quantile,
+        histogram_bins=cfg.dinobank_histogram_bins,
+        montage_samples=cfg.dinobank_montage_samples,
+        random_state=cfg.random_state,
     )
 
 
