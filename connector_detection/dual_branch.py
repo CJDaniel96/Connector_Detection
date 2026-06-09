@@ -125,7 +125,7 @@ def validate_dual_branch(
     model_path: Path,
     validation_image_dir: Path,
     output_dir: Path,
-    patchcore_config: AnomalibPatchcoreConfig,
+    patchcore_config: AnomalibPatchcoreConfig | None = None,
     class_depth: int | None = None,
 ) -> Path:
     model: DualBranchModel = joblib.load(model_path)

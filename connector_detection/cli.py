@@ -331,40 +331,19 @@ def validate_patchcore(
         Path("outputs/patchcore_validation"),
         help="Output directory for validation CSVs, plots, montage, and report.",
     ),
-    class_depth: int = typer.Option(
-        1,
+    class_depth: int | None = typer.Option(
+        None,
         min=1,
-        help="How many path components under the validation root form the class label.",
+        help="Override the class_depth saved in the trained model index.",
     ),
     device: str | None = None,
 ) -> None:
-    cfg = load_config(config)
-    anomalib_cfg = AnomalibPatchcoreConfig(
-        backbone=cfg.patchcore_backbone,
-        layers=cfg.patchcore_layers,
-        coreset_sampling_ratio=cfg.patchcore_coreset_sampling_ratio,
-        num_neighbors=cfg.patchcore_num_neighbors,
-        train_batch_size=cfg.patchcore_train_batch_size,
-        eval_batch_size=cfg.patchcore_eval_batch_size,
-        num_workers=cfg.patchcore_num_workers,
-        image_size=cfg.patchcore_image_size,
-        center_crop_size=cfg.patchcore_center_crop_size,
-        accelerator=cfg.patchcore_accelerator,
-        devices=cfg.patchcore_devices,
-        max_epochs=cfg.patchcore_max_epochs,
-        normal_split_ratio=cfg.patchcore_normal_split_ratio,
-        test_split_ratio=cfg.patchcore_test_split_ratio,
-        val_split_ratio=cfg.patchcore_val_split_ratio,
-        histogram_bins=cfg.patchcore_histogram_bins,
-        montage_samples=cfg.patchcore_montage_samples,
-        seed=cfg.random_state,
-    )
+    load_config(config)
     report_path = validate_patchcore_per_class(
         model_index_path=model,
         validation_image_dir=validation_image_dir,
         output_dir=output_dir,
         class_depth=class_depth,
-        config=anomalib_cfg,
     )
     typer.echo(f"Saved {report_path}")
 
@@ -416,18 +395,17 @@ def validate_dual_branch(
         Path("outputs/dual_branch_validation"),
         help="Output directory for validation scores and report.",
     ),
-    class_depth: int = typer.Option(
-        1,
+    class_depth: int | None = typer.Option(
+        None,
         min=1,
-        help="How many path components under the validation root form the class label.",
+        help="Override the class_depth saved in the trained dual-branch model.",
     ),
 ) -> None:
-    cfg = load_config(config)
+    load_config(config)
     report_path = validate_dual_branch_pipeline(
         model_path=model,
         validation_image_dir=validation_image_dir,
         output_dir=output_dir,
-        patchcore_config=_patchcore_config_from_pipeline(cfg),
         class_depth=class_depth,
     )
     typer.echo(f"Saved {report_path}")

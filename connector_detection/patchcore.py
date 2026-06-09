@@ -108,6 +108,7 @@ def train_patchcore_per_class(
         {
             "backend": "anomalib",
             "config": cfg,
+            "class_depth": class_depth,
             "class_models": models,
         },
         model_index_path,
@@ -126,11 +127,12 @@ def validate_patchcore_per_class(
     model_index_path: Path,
     validation_image_dir: Path,
     output_dir: Path,
-    class_depth: int = 1,
+    class_depth: int | None = None,
     config: AnomalibPatchcoreConfig | None = None,
 ) -> Path:
     payload = joblib.load(model_index_path)
     cfg = config or payload.get("config") or AnomalibPatchcoreConfig()
+    resolved_class_depth = class_depth or int(payload.get("class_depth", 1))
     output_dir.mkdir(parents=True, exist_ok=True)
 
     rows = []
@@ -142,7 +144,7 @@ def validate_patchcore_per_class(
             train_image_dir=None,
             validation_image_dir=validation_image_dir,
             dataset_root=dataset_root,
-            class_depth=class_depth,
+            class_depth=resolved_class_depth,
         )
         rows.append(
             _test_one_anomalib_patchcore(
