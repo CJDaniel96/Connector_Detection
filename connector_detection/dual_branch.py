@@ -335,10 +335,20 @@ def _read_patchcore_prediction_scores(patchcore_output_dir: Path) -> pd.DataFram
     for csv_path in patchcore_output_dir.rglob("predictions.csv"):
         df = pd.read_csv(csv_path)
         if "image_path" in df.columns:
-            for column in ("pred_score", "heatmap_path", "overlay_path"):
+            for column in ("pred_score", "raw_heatmap_path", "heatmap_path", "overlay_path"):
                 if column not in df.columns:
                     df[column] = np.nan if column == "pred_score" else ""
-            rows.append(df[["image_path", "pred_score", "heatmap_path", "overlay_path"]])
+            rows.append(
+                df[
+                    [
+                        "image_path",
+                        "pred_score",
+                        "raw_heatmap_path",
+                        "heatmap_path",
+                        "overlay_path",
+                    ]
+                ]
+            )
     return pd.concat(rows, ignore_index=True) if rows else pd.DataFrame()
 
 

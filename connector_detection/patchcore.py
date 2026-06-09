@@ -449,11 +449,12 @@ def _prediction_batch_to_rows(
     anomaly_maps = _to_list(_first_present(data, ("anomaly_map", "pred_mask", "heatmap")))
     rows = []
     for index, image_path in enumerate(paths):
+        raw_heatmap_path = None
         heatmap_path = None
         overlay_path = None
         anomaly_map = _value_at(anomaly_maps, index)
         if heatmap_dir is not None and anomaly_map is not None:
-            heatmap_path, overlay_path = _save_heatmap_outputs(
+            raw_heatmap_path, heatmap_path, overlay_path = _save_heatmap_outputs(
                 image_path=Path(image_path),
                 anomaly_map=anomaly_map,
                 output_dir=heatmap_dir,
@@ -465,6 +466,7 @@ def _prediction_batch_to_rows(
                 "pred_score": _value_at(scores, index),
                 "label": _value_at(labels, index),
                 "pred_label": _value_at(pred_labels, index),
+                "raw_heatmap_path": str(raw_heatmap_path) if raw_heatmap_path else "",
                 "heatmap_path": str(heatmap_path) if heatmap_path else "",
                 "overlay_path": str(overlay_path) if overlay_path else "",
             }
@@ -509,28 +511,30 @@ def _save_heatmap_outputs(
     anomaly_map: Any,
     output_dir: Path,
     index: int,
-) -> tuple[Path, Path] | tuple[None, None]:
+) -> tuple[Path, Path, Path] | tuple[None, None, None]:
     heatmap = _anomaly_map_to_array(anomaly_map)
     if heatmap is None:
-        return None, None
+        return None, None, None
 
     output_dir.mkdir(parents=True, exist_ok=True)
     stem = f"{image_path.stem}_{index:04d}"
+    raw_heatmap_path = output_dir / f"{stem}_raw_heatmap.png"
     heatmap_path = output_dir / f"{stem}_heatmap.png"
     overlay_path = output_dir / f"{stem}_overlay.png"
 
-    colored = _colorize_heatmap(heatmap)
-    colored.save(heatmap_path)
+    colored = _visualize_anomalib_heatmap(heatmap)
+    colored.save(raw_heatmap_path)
 
     if image_path.exists():
         with Image.open(image_path) as raw_image:
             image = ImageOps.exif_transpose(raw_image).convert("RGB")
-            overlay_heatmap = colored.resize(image.size, Image.Resampling.BILINEAR)
-            overlay = Image.blend(image, overlay_heatmap, alpha=0.45)
+            overlay = _overlay_anomalib_heatmap(image, colored)
+            overlay.save(heatmap_path)
             overlay.save(overlay_path)
     else:
+        colored.save(heatmap_path)
         colored.save(overlay_path)
-    return heatmap_path, overlay_path
+    return raw_heatmap_path, heatmap_path, overlay_path
 
 
 def _anomaly_map_to_array(anomaly_map: Any) -> np.ndarray | None:
@@ -557,6 +561,25 @@ def _colorize_heatmap(heatmap: np.ndarray) -> Image.Image:
     rgba = cmap(np.clip(heatmap, 0.0, 1.0))
     rgb = (rgba[:, :, :3] * 255).astype(np.uint8)
     return Image.fromarray(rgb, mode="RGB")
+
+
+def _visualize_anomalib_heatmap(heatmap: np.ndarray) -> Image.Image:
+    try:
+        from anomalib.visualization.image.functional import visualize_anomaly_map
+
+        return visualize_anomaly_map(heatmap, normalize=True, colormap=True)
+    except Exception:
+        return _colorize_heatmap(heatmap)
+
+
+def _overlay_anomalib_heatmap(image: Image.Image, heatmap: Image.Image) -> Image.Image:
+    heatmap = heatmap.resize(image.size, Image.Resampling.BILINEAR)
+    try:
+        from anomalib.visualization.image.functional import overlay_images
+
+        return overlay_images(image, heatmap, alpha=0.45).convert("RGB")
+    except Exception:
+        return Image.blend(image, heatmap, alpha=0.45)
 
 
 def _flatten_anomalib_metrics(result: Any) -> dict[str, Any]:
@@ -603,7 +626,7 @@ def write_anomalib_patchcore_report(
             "- `classes/*/predictions.csv`: prediction scores when anomalib returns prediction batches",
             "- `classes/*/plots`: score histograms when prediction scores are available",
             "- `classes/*/montage`: highest-score image montage when prediction scores are available",
-            "- `classes/*/heatmaps`: anomaly heatmaps and image overlays when anomalib returns anomaly maps",
+            "- `classes/*/heatmaps`: anomalib-style image overlays plus raw heatmaps when anomaly maps are returned",
         ]
     )
     if validation_image_dir is not None:
