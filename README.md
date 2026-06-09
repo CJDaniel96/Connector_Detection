@@ -241,6 +241,67 @@ uv run connector-detection validate-patchcore \
   --output-dir outputs/patchcore_validation
 ```
 
+## Train Dual-Branch Inspection
+
+The dual-branch pipeline combines:
+
+```text
+pin-band crop
+-> manual class folder / class assignment target
+-> anomalib PatchCore[class]
+-> structural profile check[class]
+-> score fusion
+-> OK / NG
+```
+
+Train both branches:
+
+```bash
+uv run connector-detection train-dual-branch \
+  configs/pipeline.example.toml \
+  --train-image-dir data/patchcore_train \
+  --validation-image-dir data/patchcore_val \
+  --output-dir outputs/dual_branch_pin_bands
+```
+
+Structural branch checks:
+
+- `peak_count_deviation`
+- `peak_spacing_anomaly`
+- `profile_similarity_anomaly`
+- `metal_ratio_anomaly`
+
+Fusion settings:
+
+```toml
+structural_score_threshold_quantile = 0.995
+fusion_patchcore_weight = 1.0
+fusion_peak_count_weight = 1.0
+fusion_peak_spacing_weight = 1.0
+fusion_profile_weight = 1.0
+fusion_metal_ratio_weight = 1.0
+fusion_threshold = 1.0
+```
+
+Main outputs:
+
+- `dual_branch_model.joblib`: PatchCore model index + structural profiles
+- `dual_branch_report.md`: summary report
+- `structural_branch/train/structural_profile_summary.csv`
+- `structural_branch/validation/structural_scores.csv`
+- `patchcore_branch/classes/*`: anomalib PatchCore output per class
+- `dual_branch_fusion_scores.csv`: fused PatchCore + structural scores
+
+Validate later:
+
+```bash
+uv run connector-detection validate-dual-branch \
+  configs/pipeline.example.toml \
+  outputs/dual_branch_pin_bands/dual_branch_model.joblib \
+  --validation-image-dir data/patchcore_val \
+  --output-dir outputs/dual_branch_validation
+```
+
 Main outputs:
 
 - `embeddings.npy`: final DINOv2 + weighted structural feature vectors

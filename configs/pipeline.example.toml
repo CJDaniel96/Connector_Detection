@@ -43,4 +43,13 @@ patchcore_val_split_ratio = 0.5
 patchcore_histogram_bins = 30
 patchcore_montage_samples = 30
 
+# Dual-branch structural scoring and score fusion.
+structural_score_threshold_quantile = 0.995
+fusion_patchcore_weight = 1.0
+fusion_peak_count_weight = 1.0
+fusion_peak_spacing_weight = 1.0
+fusion_profile_weight = 1.0
+fusion_metal_ratio_weight = 1.0
+fusion_threshold = 1.0
+
 random_state = 42

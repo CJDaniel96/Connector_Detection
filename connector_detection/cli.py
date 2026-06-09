@@ -7,6 +7,9 @@ import typer
 from connector_detection.centroid import assign_nearest_centroids, fit_nearest_centroids
 from connector_detection.clustering import assign_existing_embeddings, fit_clusters
 from connector_detection.config import load_config
+from connector_detection.dual_branch import StructuralFusionConfig
+from connector_detection.dual_branch import train_dual_branch as train_dual_branch_pipeline
+from connector_detection.dual_branch import validate_dual_branch as validate_dual_branch_pipeline
 from connector_detection.features import extract_embeddings
 from connector_detection.patchcore import (
     AnomalibPatchcoreConfig,
@@ -14,6 +17,7 @@ from connector_detection.patchcore import (
     validate_patchcore_per_class,
 )
 from connector_detection.review import export_review_samples
+from connector_detection.structural_features import StructuralFeatureConfig
 from connector_detection.voc import crop_pin_bands_from_voc
 from connector_detection.visualize import plot_umap
 
@@ -361,6 +365,115 @@ def validate_patchcore(
         config=anomalib_cfg,
     )
     typer.echo(f"Saved {report_path}")
+
+
+@app.command()
+def train_dual_branch(
+    config: Path,
+    train_image_dir: Path = typer.Option(
+        ...,
+        help="Root folder whose child folders are class labels. Use good images for each class.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("outputs/dual_branch"),
+        help="Output directory for PatchCore branch, structural branch, and fusion report.",
+    ),
+    validation_image_dir: Path | None = typer.Option(
+        None,
+        help="Optional validation root with the same class folder layout.",
+    ),
+    class_depth: int = typer.Option(
+        1,
+        min=1,
+        help="How many path components under the root form the class label.",
+    ),
+) -> None:
+    cfg = load_config(config)
+    model_path, report_path = train_dual_branch_pipeline(
+        train_image_dir=train_image_dir,
+        output_dir=output_dir,
+        patchcore_config=_patchcore_config_from_pipeline(cfg),
+        structural_feature_config=_structural_config_from_pipeline(cfg),
+        fusion_config=_fusion_config_from_pipeline(cfg),
+        class_depth=class_depth,
+        validation_image_dir=validation_image_dir,
+    )
+    typer.echo(f"Saved {model_path}")
+    typer.echo(f"Saved {report_path}")
+
+
+@app.command()
+def validate_dual_branch(
+    config: Path,
+    model: Path,
+    validation_image_dir: Path = typer.Option(
+        ...,
+        help="Validation root with the same class folder layout.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("outputs/dual_branch_validation"),
+        help="Output directory for validation scores and report.",
+    ),
+    class_depth: int = typer.Option(
+        1,
+        min=1,
+        help="How many path components under the validation root form the class label.",
+    ),
+) -> None:
+    cfg = load_config(config)
+    report_path = validate_dual_branch_pipeline(
+        model_path=model,
+        validation_image_dir=validation_image_dir,
+        output_dir=output_dir,
+        patchcore_config=_patchcore_config_from_pipeline(cfg),
+        class_depth=class_depth,
+    )
+    typer.echo(f"Saved {report_path}")
+
+
+def _patchcore_config_from_pipeline(cfg) -> AnomalibPatchcoreConfig:
+    return AnomalibPatchcoreConfig(
+        backbone=cfg.patchcore_backbone,
+        layers=cfg.patchcore_layers,
+        coreset_sampling_ratio=cfg.patchcore_coreset_sampling_ratio,
+        num_neighbors=cfg.patchcore_num_neighbors,
+        train_batch_size=cfg.patchcore_train_batch_size,
+        eval_batch_size=cfg.patchcore_eval_batch_size,
+        num_workers=cfg.patchcore_num_workers,
+        image_size=cfg.patchcore_image_size,
+        center_crop_size=cfg.patchcore_center_crop_size,
+        accelerator=cfg.patchcore_accelerator,
+        devices=cfg.patchcore_devices,
+        max_epochs=cfg.patchcore_max_epochs,
+        normal_split_ratio=cfg.patchcore_normal_split_ratio,
+        test_split_ratio=cfg.patchcore_test_split_ratio,
+        val_split_ratio=cfg.patchcore_val_split_ratio,
+        histogram_bins=cfg.patchcore_histogram_bins,
+        montage_samples=cfg.patchcore_montage_samples,
+        seed=cfg.random_state,
+    )
+
+
+def _structural_config_from_pipeline(cfg) -> StructuralFeatureConfig:
+    return StructuralFeatureConfig(
+        projection_dims=cfg.projection_profile_dims,
+        bright_threshold=cfg.bright_threshold,
+        edge_threshold=cfg.edge_threshold,
+        peak_threshold_std=cfg.peak_threshold_std,
+        peak_min_distance=cfg.peak_min_distance,
+    )
+
+
+def _fusion_config_from_pipeline(cfg) -> StructuralFusionConfig:
+    return StructuralFusionConfig(
+        threshold_quantile=cfg.structural_score_threshold_quantile,
+        peak_count_weight=cfg.fusion_peak_count_weight,
+        peak_spacing_weight=cfg.fusion_peak_spacing_weight,
+        profile_weight=cfg.fusion_profile_weight,
+        metal_ratio_weight=cfg.fusion_metal_ratio_weight,
+        patchcore_weight=cfg.fusion_patchcore_weight,
+        fusion_threshold=cfg.fusion_threshold,
+    )
 
 
 @app.command()

@@ -40,6 +40,13 @@ class PipelineConfig:
     patchcore_val_split_ratio: float = 0.5
     patchcore_histogram_bins: int = 30
     patchcore_montage_samples: int = 30
+    structural_score_threshold_quantile: float = 0.995
+    fusion_patchcore_weight: float = 1.0
+    fusion_peak_count_weight: float = 1.0
+    fusion_peak_spacing_weight: float = 1.0
+    fusion_profile_weight: float = 1.0
+    fusion_metal_ratio_weight: float = 1.0
+    fusion_threshold: float = 1.0
     random_state: int = 42
 
 
@@ -90,5 +97,14 @@ def load_config(path: Path) -> PipelineConfig:
         patchcore_val_split_ratio=float(section.get("patchcore_val_split_ratio", 0.5)),
         patchcore_histogram_bins=int(section.get("patchcore_histogram_bins", 30)),
         patchcore_montage_samples=int(section.get("patchcore_montage_samples", 30)),
+        structural_score_threshold_quantile=float(
+            section.get("structural_score_threshold_quantile", 0.995)
+        ),
+        fusion_patchcore_weight=float(section.get("fusion_patchcore_weight", 1.0)),
+        fusion_peak_count_weight=float(section.get("fusion_peak_count_weight", 1.0)),
+        fusion_peak_spacing_weight=float(section.get("fusion_peak_spacing_weight", 1.0)),
+        fusion_profile_weight=float(section.get("fusion_profile_weight", 1.0)),
+        fusion_metal_ratio_weight=float(section.get("fusion_metal_ratio_weight", 1.0)),
+        fusion_threshold=float(section.get("fusion_threshold", 1.0)),
         random_state=int(section.get("random_state", 42)),
     )
