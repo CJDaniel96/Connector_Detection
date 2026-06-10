@@ -11,6 +11,11 @@ from connector_detection.config import load_config
 from connector_detection.dual_branch import StructuralFusionConfig
 from connector_detection.dual_branch import train_dual_branch as train_dual_branch_pipeline
 from connector_detection.dual_branch import validate_dual_branch as validate_dual_branch_pipeline
+from connector_detection.dinomaly import (
+    AnomalibDinomalyConfig,
+    train_dinomaly_unified,
+    validate_dinomaly_unified,
+)
 from connector_detection.dinobank import DinoBankConfig, train_dinobank, validate_dinobank
 from connector_detection.features import extract_embeddings
 from connector_detection.patchcore import (
@@ -455,6 +460,79 @@ def compare_baselines(
     typer.echo(f"Saved {plot_path}")
 
 
+@app.command("dinomaly-train")
+def dinomaly_train(
+    config: Path,
+    train_image_dir: Path = typer.Option(
+        ...,
+        help="Root folder whose child folders are class labels. Normal images train one unified Dinomaly model.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("outputs/dinomaly"),
+        help="Output directory for Dinomaly artifacts.",
+    ),
+    validation_image_dir: Path | None = typer.Option(
+        None,
+        help="Optional validation root with matching class folders.",
+    ),
+    class_depth: int = typer.Option(
+        1,
+        min=1,
+        help="How many path components under the root form the class label.",
+    ),
+    class_label: list[str] | None = typer.Option(
+        None,
+        "--class-label",
+        help="Use only this class label. Repeat the option to use multiple classes.",
+    ),
+) -> None:
+    cfg = load_config(config)
+    model_path, report_path = train_dinomaly_unified(
+        train_image_dir=train_image_dir,
+        output_dir=output_dir,
+        class_depth=class_depth,
+        validation_image_dir=validation_image_dir,
+        class_labels=class_label,
+        config=_dinomaly_config_from_pipeline(cfg),
+    )
+    typer.echo(f"Saved {model_path}")
+    typer.echo(f"Saved {report_path}")
+
+
+@app.command("dinomaly-validate")
+def dinomaly_validate(
+    config: Path,
+    model: Path,
+    validation_image_dir: Path = typer.Option(
+        ...,
+        help="Validation root with matching class folders.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("outputs/dinomaly_validation"),
+        help="Output directory for Dinomaly validation artifacts.",
+    ),
+    class_depth: int | None = typer.Option(
+        None,
+        min=1,
+        help="Override the class_depth saved in the trained model.",
+    ),
+    class_label: list[str] | None = typer.Option(
+        None,
+        "--class-label",
+        help="Validate only this class label. Repeat the option to validate multiple classes.",
+    ),
+) -> None:
+    load_config(config)
+    report_path = validate_dinomaly_unified(
+        model_index_path=model,
+        validation_image_dir=validation_image_dir,
+        output_dir=output_dir,
+        class_depth=class_depth,
+        class_labels=class_label,
+    )
+    typer.echo(f"Saved {report_path}")
+
+
 @app.command(hidden=True)
 def train_dual_branch(
     config: Path,
@@ -573,6 +651,31 @@ def _dinobank_config_from_pipeline(cfg) -> DinoBankConfig:
         histogram_bins=cfg.dinobank_histogram_bins,
         montage_samples=cfg.dinobank_montage_samples,
         random_state=cfg.random_state,
+    )
+
+
+def _dinomaly_config_from_pipeline(cfg) -> AnomalibDinomalyConfig:
+    return AnomalibDinomalyConfig(
+        encoder_name=cfg.dinomaly_encoder_name,
+        bottleneck_dropout=cfg.dinomaly_bottleneck_dropout,
+        decoder_depth=cfg.dinomaly_decoder_depth,
+        target_layers=cfg.dinomaly_target_layers,
+        fuse_layer_encoder=cfg.dinomaly_fuse_layer_encoder,
+        fuse_layer_decoder=cfg.dinomaly_fuse_layer_decoder,
+        remove_class_token=cfg.dinomaly_remove_class_token,
+        use_context_recentering=cfg.dinomaly_use_context_recentering,
+        train_batch_size=cfg.dinomaly_train_batch_size,
+        eval_batch_size=cfg.dinomaly_eval_batch_size,
+        num_workers=cfg.dinomaly_num_workers,
+        image_size=cfg.dinomaly_image_size,
+        crop_size=cfg.dinomaly_crop_size,
+        accelerator=cfg.dinomaly_accelerator,
+        devices=cfg.dinomaly_devices,
+        max_epochs=cfg.dinomaly_max_epochs,
+        normal_split_ratio=cfg.dinomaly_normal_split_ratio,
+        test_split_ratio=cfg.dinomaly_test_split_ratio,
+        val_split_ratio=cfg.dinomaly_val_split_ratio,
+        seed=cfg.random_state,
     )
 
 

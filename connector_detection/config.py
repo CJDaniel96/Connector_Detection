@@ -25,6 +25,25 @@ class PipelineConfig:
     dinobank_threshold_quantile: float = 0.995
     dinobank_histogram_bins: int = 30
     dinobank_montage_samples: int = 30
+    dinomaly_encoder_name: str = "dinov2reg_vit_base_14"
+    dinomaly_bottleneck_dropout: float = 0.2
+    dinomaly_decoder_depth: int = 8
+    dinomaly_target_layers: tuple[int, ...] | None = None
+    dinomaly_fuse_layer_encoder: tuple[tuple[int, ...], ...] | None = None
+    dinomaly_fuse_layer_decoder: tuple[tuple[int, ...], ...] | None = None
+    dinomaly_remove_class_token: bool = False
+    dinomaly_use_context_recentering: bool = False
+    dinomaly_train_batch_size: int = 16
+    dinomaly_eval_batch_size: int = 16
+    dinomaly_num_workers: int = 0
+    dinomaly_image_size: ImageSize | None = (448, 448)
+    dinomaly_crop_size: int | None = 392
+    dinomaly_accelerator: str = "auto"
+    dinomaly_devices: str = "auto"
+    dinomaly_max_epochs: int = 10
+    dinomaly_normal_split_ratio: float = 0.2
+    dinomaly_test_split_ratio: float = 0.2
+    dinomaly_val_split_ratio: float = 0.5
     projection_profile_dims: int = 128
     bright_threshold: float = 0.65
     edge_threshold: float = 0.12
@@ -81,6 +100,37 @@ def load_config(path: Path) -> PipelineConfig:
         dinobank_threshold_quantile=float(section.get("dinobank_threshold_quantile", 0.995)),
         dinobank_histogram_bins=int(section.get("dinobank_histogram_bins", 30)),
         dinobank_montage_samples=int(section.get("dinobank_montage_samples", 30)),
+        dinomaly_encoder_name=str(section.get("dinomaly_encoder_name", "dinov2reg_vit_base_14")),
+        dinomaly_bottleneck_dropout=float(section.get("dinomaly_bottleneck_dropout", 0.2)),
+        dinomaly_decoder_depth=int(section.get("dinomaly_decoder_depth", 8)),
+        dinomaly_target_layers=_parse_optional_int_tuple(section.get("dinomaly_target_layers")),
+        dinomaly_fuse_layer_encoder=_parse_optional_nested_int_tuple(
+            section.get("dinomaly_fuse_layer_encoder")
+        ),
+        dinomaly_fuse_layer_decoder=_parse_optional_nested_int_tuple(
+            section.get("dinomaly_fuse_layer_decoder")
+        ),
+        dinomaly_remove_class_token=bool(section.get("dinomaly_remove_class_token", False)),
+        dinomaly_use_context_recentering=bool(
+            section.get("dinomaly_use_context_recentering", False)
+        ),
+        dinomaly_train_batch_size=int(section.get("dinomaly_train_batch_size", 16)),
+        dinomaly_eval_batch_size=int(section.get("dinomaly_eval_batch_size", 16)),
+        dinomaly_num_workers=int(section.get("dinomaly_num_workers", 0)),
+        dinomaly_image_size=_parse_optional_image_size(
+            section.get("dinomaly_image_size", [448, 448])
+        ),
+        dinomaly_crop_size=(
+            None
+            if section.get("dinomaly_crop_size", 392) in (None, "null")
+            else int(section.get("dinomaly_crop_size", 392))
+        ),
+        dinomaly_accelerator=str(section.get("dinomaly_accelerator", "auto")),
+        dinomaly_devices=str(section.get("dinomaly_devices", "auto")),
+        dinomaly_max_epochs=int(section.get("dinomaly_max_epochs", 10)),
+        dinomaly_normal_split_ratio=float(section.get("dinomaly_normal_split_ratio", 0.2)),
+        dinomaly_test_split_ratio=float(section.get("dinomaly_test_split_ratio", 0.2)),
+        dinomaly_val_split_ratio=float(section.get("dinomaly_val_split_ratio", 0.5)),
         projection_profile_dims=int(section.get("projection_profile_dims", 128)),
         bright_threshold=float(section.get("bright_threshold", 0.65)),
         edge_threshold=float(section.get("edge_threshold", 0.12)),
@@ -133,3 +183,19 @@ def _parse_optional_image_size(value: object) -> ImageSize | None:
     if value in (None, "null"):
         return None
     return _parse_image_size(value)
+
+
+def _parse_optional_int_tuple(value: object) -> tuple[int, ...] | None:
+    if value in (None, "null"):
+        return None
+    if not isinstance(value, list):
+        raise ValueError("Integer tuple config values must be TOML lists.")
+    return tuple(int(item) for item in value)
+
+
+def _parse_optional_nested_int_tuple(value: object) -> tuple[tuple[int, ...], ...] | None:
+    if value in (None, "null"):
+        return None
+    if not isinstance(value, list):
+        raise ValueError("Nested integer tuple config values must be TOML lists.")
+    return tuple(tuple(int(item) for item in group) for group in value)

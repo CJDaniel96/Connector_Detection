@@ -141,6 +141,51 @@ Main outputs:
 Thresholds are set from normal training images using leave-one-out nearest
 distance quantiles. The default is `dinobank_threshold_quantile = 0.995`.
 
+## Dinomaly Baseline
+
+Dinomaly is a reconstruction-style Transformer anomaly model. In this project
+it is trained as one unified multi-class anomalib model over all selected
+classes, matching Dinomaly's main multi-class UAD setting.
+
+Train and optionally validate:
+
+```bash
+uv run connector-detection dinomaly-train \
+  configs/dinomaly.example.toml \
+  --train-image-dir data/pin_band_train \
+  --validation-image-dir data/pin_band_val \
+  --output-dir outputs/dinomaly_pin_bands
+```
+
+Validate an existing model:
+
+```bash
+uv run connector-detection dinomaly-validate \
+  configs/dinomaly.example.toml \
+  outputs/dinomaly_pin_bands/dinomaly_model.joblib \
+  --validation-image-dir data/pin_band_val \
+  --output-dir outputs/dinomaly_validation
+```
+
+Use only selected classes:
+
+```bash
+uv run connector-detection dinomaly-train \
+  configs/dinomaly.example.toml \
+  --train-image-dir data/pin_band_train \
+  --validation-image-dir data/pin_band_val \
+  --class-label 20pin \
+  --class-label 24pin
+```
+
+Main outputs:
+
+- `dinomaly_model.joblib`: checkpoint index, config, and class labels.
+- `dinomaly_anomalib_summary.csv`: anomalib metrics and prediction artifact paths.
+- `dinomaly_report.md`: compact training or validation report.
+- `anomalib/`: anomalib trainer logs, checkpoints, and visual artifacts.
+- `predictions.csv`: prediction scores when anomalib returns prediction batches.
+
 ## Compare Baselines
 
 After running both baselines on the same validation root:

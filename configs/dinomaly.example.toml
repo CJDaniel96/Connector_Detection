@@ -1,0 +1,31 @@
+[pipeline]
+# Dinomaly baseline config. This trains one unified multi-class anomalib
+# Dinomaly model from normal images across all selected classes.
+image_dir = "data/pin_band_train"
+output_dir = "outputs/dinomaly_pin_bands"
+
+dinomaly_encoder_name = "dinov2reg_vit_base_14"
+dinomaly_bottleneck_dropout = 0.2
+dinomaly_decoder_depth = 8
+
+# Use "null" to let anomalib choose its defaults. These defaults mirror the
+# common Dinomaly-B setup from the official implementation.
+dinomaly_target_layers = "null"
+dinomaly_fuse_layer_encoder = "null"
+dinomaly_fuse_layer_decoder = "null"
+dinomaly_remove_class_token = false
+dinomaly_use_context_recentering = false
+
+dinomaly_train_batch_size = 16
+dinomaly_eval_batch_size = 16
+dinomaly_num_workers = 0
+dinomaly_image_size = [448, 448]
+dinomaly_crop_size = 392
+dinomaly_accelerator = "auto"
+dinomaly_devices = "auto"
+dinomaly_max_epochs = 10
+dinomaly_normal_split_ratio = 0.2
+dinomaly_test_split_ratio = 0.2
+dinomaly_val_split_ratio = 0.5
+
+random_state = 42
