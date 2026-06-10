@@ -186,6 +186,11 @@ Main outputs:
 - `anomalib/`: anomalib trainer logs, checkpoints, and visual artifacts.
 - `predictions.csv`: prediction scores when anomalib returns prediction batches.
 
+For long pin-band crops, `configs/dinomaly.example.toml` uses
+`dinomaly_image_size = [112, 560]` and `dinomaly_crop_size = "null"`. In this
+project, `"null"` means resize + ImageNet normalization only, without anomalib's
+default square `CenterCrop(392)`.
+
 ## Compare Baselines
 
 After running both baselines on the same validation root:

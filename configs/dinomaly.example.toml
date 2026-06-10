@@ -16,14 +16,17 @@ dinomaly_fuse_layer_decoder = "null"
 dinomaly_remove_class_token = false
 dinomaly_use_context_recentering = false
 
-dinomaly_train_batch_size = 16
-dinomaly_eval_batch_size = 16
+# Pin-band crops are long and thin. Resize to a 14-divisible rectangle and
+# disable center crop to avoid losing pins near the left/right edges.
+dinomaly_image_size = [112, 560]
+dinomaly_crop_size = "null"
+
+dinomaly_train_batch_size = 8
+dinomaly_eval_batch_size = 8
 dinomaly_num_workers = 0
-dinomaly_image_size = [448, 448]
-dinomaly_crop_size = 392
 dinomaly_accelerator = "auto"
 dinomaly_devices = "auto"
-dinomaly_max_epochs = 10
+dinomaly_max_epochs = 30
 dinomaly_normal_split_ratio = 0.2
 dinomaly_test_split_ratio = 0.2
 dinomaly_val_split_ratio = 0.5

@@ -290,9 +290,14 @@ def _make_folder_datamodule(dataset_root: Path, config: AnomalibDinomalyConfig) 
 def _make_dinomaly_model(Dinomaly: Any, config: AnomalibDinomalyConfig) -> Any:
     pre_processor = True
     if hasattr(Dinomaly, "configure_pre_processor"):
-        pre_processor = Dinomaly.configure_pre_processor(
-            image_size=_hw_tuple(config.image_size) if config.image_size is not None else None,
-            crop_size=config.crop_size,
+        image_size = _hw_tuple(config.image_size) if config.image_size is not None else None
+        pre_processor = (
+            _make_no_crop_pre_processor(image_size)
+            if config.crop_size is None
+            else Dinomaly.configure_pre_processor(
+                image_size=image_size,
+                crop_size=config.crop_size,
+            )
         )
     return Dinomaly(
         encoder_name=config.encoder_name,
@@ -313,6 +318,17 @@ def _make_dinomaly_model(Dinomaly: Any, config: AnomalibDinomalyConfig) -> Any:
         use_context_recentering=config.use_context_recentering,
         pre_processor=pre_processor,
     )
+
+
+def _make_no_crop_pre_processor(image_size: tuple[int, int] | None) -> Any:
+    from anomalib.pre_processing import PreProcessor
+    from torchvision.transforms.v2 import Compose, Normalize, Resize
+
+    transforms = []
+    if image_size is not None:
+        transforms.append(Resize(image_size))
+    transforms.append(Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]))
+    return PreProcessor(transform=Compose(transforms))
 
 
 def _normal_training_paths(
