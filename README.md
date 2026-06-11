@@ -48,6 +48,68 @@ data/pin_band_val/
 
 For nested labels such as `vendor_a/20pin`, pass `--class-depth 2`.
 
+## Foundation Embedding Clustering
+
+Use this workflow when images are not labeled yet and you want an initial
+human-reviewable grouping.
+
+```text
+unlabeled images
+-> DINOv2 / CLIP / ViT / ResNet embedding
+-> PCA or UMAP reduction
+-> K-Means clustering
+-> UMAP visualization
+-> representative images per cluster
+-> manual cluster naming or merge notes
+```
+
+Example with DINOv2:
+
+```bash
+uv run connector-detection foundation-cluster \
+  --image-dir data/unlabeled_pin_bands \
+  --output-dir outputs/foundation_clusters \
+  --model-kind dinov2 \
+  --n-clusters 8 \
+  --reducer pca \
+  --reduced-dim 50 \
+  --review-samples 30
+```
+
+Other supported backbones:
+
+```bash
+uv run connector-detection foundation-cluster --image-dir data/unlabeled --output-dir outputs/clip_clusters --model-kind clip --n-clusters 8
+uv run connector-detection foundation-cluster --image-dir data/unlabeled --output-dir outputs/vit_clusters --model-kind vit --n-clusters 8
+uv run connector-detection foundation-cluster --image-dir data/unlabeled --output-dir outputs/resnet_clusters --model-kind resnet --n-clusters 8
+```
+
+Main outputs:
+
+- `embeddings.npy`: raw foundation model image embeddings.
+- `embeddings_reduced.npy`: PCA or UMAP features used by K-Means.
+- `clusters.csv`: per-image cluster id, centroid distance, and representative rank.
+- `umap_clusters.png`: 2D UMAP plot colored by K-Means cluster.
+- `review/cluster_*/`: representative images nearest to each cluster centroid.
+- `review/montage/cluster_*.jpg`: montage for fast manual review.
+- `cluster_labels_template.csv`: fill `cluster_name` and optional `merge_to` after review.
+- `foundation_clustering_report.md`: compact run summary.
+
+After reviewing the montage folders, edit `cluster_labels_template.csv`. To name
+cluster 0 as `20pin` and merge cluster 3 into cluster 0, set `cluster_name=20pin`
+for cluster 0 and `merge_to=0` for cluster 3. Then apply the review decisions:
+
+```bash
+uv run connector-detection apply-foundation-cluster-labels \
+  --clusters-csv outputs/foundation_clusters/clusters.csv \
+  --labels-csv outputs/foundation_clusters/cluster_labels_template.csv \
+  --output outputs/foundation_clusters/clusters_named.csv
+```
+
+Splitting a cluster is intentionally left as a manual per-image review step:
+write notes in `split_note`, then move those images or create a corrected CSV
+based on `clusters.csv`.
+
 ## PatchCore Baseline
 
 PatchCore is a standalone anomalib baseline. It uses anomalib `Folder`,

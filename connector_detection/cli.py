@@ -19,6 +19,11 @@ from connector_detection.dinomaly import (
 )
 from connector_detection.dinobank import DinoBankConfig, train_dinobank, validate_dinobank
 from connector_detection.features import extract_embeddings
+from connector_detection.foundation_clustering import (
+    FoundationClusterConfig,
+    apply_foundation_cluster_labels,
+    run_foundation_clustering,
+)
 from connector_detection.patchcore import (
     AnomalibPatchcoreConfig,
     train_patchcore_per_class,
@@ -102,6 +107,103 @@ def assign(
     output: Path = Path("outputs/assignments.csv"),
 ) -> None:
     output_path = assign_existing_embeddings(embeddings, model, output)
+    typer.echo(f"Saved {output_path}")
+
+
+@app.command("foundation-cluster")
+def foundation_cluster(
+    image_dir: Path = typer.Option(
+        ...,
+        help="Unlabeled image root. All images under this directory are clustered.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("outputs/foundation_clusters"),
+        help="Output directory for embeddings, K-Means clusters, UMAP plot, and review samples.",
+    ),
+    model_kind: str = typer.Option(
+        "dinov2",
+        help="Foundation backbone: dinov2, clip, vit, or resnet.",
+    ),
+    model_name: str | None = typer.Option(
+        None,
+        help="Optional Hugging Face model name. Defaults depend on --model-kind.",
+    ),
+    image_size: int = typer.Option(
+        224,
+        min=1,
+        help="Resize/pad input images to this square size before embedding extraction.",
+    ),
+    batch_size: int = typer.Option(16, min=1, help="Embedding extraction batch size."),
+    reducer: str = typer.Option(
+        "pca",
+        help="Dimensionality reducer before K-Means: pca or umap.",
+    ),
+    reduced_dim: int = typer.Option(
+        50,
+        min=1,
+        help="Feature dimension used by K-Means after PCA/UMAP reduction.",
+    ),
+    n_clusters: int = typer.Option(
+        ...,
+        min=2,
+        help="Number of K-Means clusters.",
+    ),
+    umap_neighbors: int = typer.Option(
+        15,
+        min=2,
+        help="UMAP neighbor count for visualization and optional UMAP reducer.",
+    ),
+    review_samples: int = typer.Option(
+        25,
+        min=1,
+        help="Representative images copied per cluster for manual review.",
+    ),
+    random_state: int = typer.Option(42, help="Random seed for PCA/UMAP/K-Means."),
+    device: str | None = typer.Option(None, help="Torch device, for example cuda, mps, or cpu."),
+) -> None:
+    clusters_path, umap_path, review_summary_path, labels_template_path = run_foundation_clustering(
+        image_dir=image_dir,
+        output_dir=output_dir,
+        config=FoundationClusterConfig(
+            model_kind=model_kind,
+            model_name=model_name,
+            image_size=image_size,
+            batch_size=batch_size,
+            reducer=reducer,
+            reduced_dim=reduced_dim,
+            n_clusters=n_clusters,
+            umap_neighbors=umap_neighbors,
+            review_samples=review_samples,
+            random_state=random_state,
+        ),
+        device=device,
+    )
+    typer.echo(f"Saved {clusters_path}")
+    typer.echo(f"Saved {umap_path}")
+    typer.echo(f"Saved {review_summary_path}")
+    typer.echo(f"Saved {labels_template_path}")
+
+
+@app.command("apply-foundation-cluster-labels")
+def apply_foundation_labels(
+    clusters_csv: Path = typer.Option(
+        ...,
+        help="clusters.csv produced by foundation-cluster.",
+    ),
+    labels_csv: Path = typer.Option(
+        ...,
+        help="Edited cluster_labels_template.csv with cluster_name and optional merge_to.",
+    ),
+    output: Path = typer.Option(
+        Path("outputs/foundation_clusters/clusters_named.csv"),
+        help="Output CSV with review_cluster, final_cluster, and cluster_name columns.",
+    ),
+) -> None:
+    output_path = apply_foundation_cluster_labels(
+        clusters_csv=clusters_csv,
+        labels_csv=labels_csv,
+        output_path=output,
+    )
     typer.echo(f"Saved {output_path}")
 
 
