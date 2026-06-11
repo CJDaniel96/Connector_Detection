@@ -269,7 +269,9 @@ def _prepare_blind_folder_dataset(
 ) -> None:
     if dataset_root.exists():
         shutil.rmtree(dataset_root)
+    train_good_dir = dataset_root / "train" / "good"
     test_good_dir = dataset_root / "test" / "good"
+    train_good_dir.mkdir(parents=True, exist_ok=True)
     test_good_dir.mkdir(parents=True, exist_ok=True)
 
     image_paths = list_images(image_dir)
@@ -379,7 +381,10 @@ def _make_folder_datamodule(dataset_root: Path, config: AnomalibDinomalyConfig) 
     train_good = dataset_root / "train" / "good"
     test_good = dataset_root / "test" / "good"
     test_abnormal = dataset_root / "test" / "abnormal"
-    normal_dir = "train/good" if any(train_good.iterdir()) else "test/good"
+    has_train_good = train_good.exists() and any(train_good.iterdir())
+    has_test_good = test_good.exists() and any(test_good.iterdir())
+    has_test_abnormal = test_abnormal.exists() and any(test_abnormal.iterdir())
+    normal_dir = "train/good" if has_train_good else "test/good"
     kwargs = {
         "name": "dinomaly_unified",
         "root": dataset_root,
@@ -394,9 +399,9 @@ def _make_folder_datamodule(dataset_root: Path, config: AnomalibDinomalyConfig) 
         "val_split_ratio": config.val_split_ratio,
         "seed": config.seed,
     }
-    if any(test_good.iterdir()):
+    if has_test_good:
         kwargs["normal_test_dir"] = "test/good"
-    if any(test_abnormal.iterdir()):
+    if has_test_abnormal:
         kwargs["abnormal_dir"] = "test/abnormal"
     return _instantiate_with_supported_kwargs(_load_anomalib_dinomaly_classes()[0], kwargs)
 
