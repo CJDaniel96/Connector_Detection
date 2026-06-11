@@ -8,6 +8,7 @@ from typing import Any
 import joblib
 import pandas as pd
 
+from connector_detection.evaluation import finalize_evaluation_outputs, has_label_tokens
 from connector_detection.images import list_images
 
 GOOD_TOKENS = {"good", "ok", "normal", "pass"}
@@ -123,6 +124,24 @@ def validate_patchcore_per_class(
     config: AnomalibPatchcoreConfig | None = None,
     class_labels: list[str] | None = None,
 ) -> Path:
+    return evaluate_patchcore_per_class(
+        model_index_path=model_index_path,
+        image_dir=validation_image_dir,
+        output_dir=output_dir,
+        class_depth=class_depth,
+        config=config,
+        class_labels=class_labels,
+    )
+
+
+def evaluate_patchcore_per_class(
+    model_index_path: Path,
+    image_dir: Path,
+    output_dir: Path,
+    class_depth: int | None = None,
+    config: AnomalibPatchcoreConfig | None = None,
+    class_labels: list[str] | None = None,
+) -> Path:
     payload = joblib.load(model_index_path)
     cfg = config or payload.get("config") or AnomalibPatchcoreConfig()
     resolved_class_depth = class_depth or int(payload.get("class_depth", 1))
@@ -140,35 +159,81 @@ def validate_patchcore_per_class(
             )
         class_models = {label: class_models[label] for label in class_labels}
 
+    prediction_frames = []
     for label, model_info in class_models.items():
         class_output_dir = output_dir / "classes" / _safe_filename(label)
         dataset_root = class_output_dir / "dataset"
-        _prepare_anomalib_folder_dataset(
+        evaluation_paths = _evaluation_paths_for_label(
+            image_dir=image_dir,
             label=label,
-            train_image_dir=None,
-            validation_image_dir=validation_image_dir,
+            class_depth=resolved_class_depth,
+            allow_all_images=len(class_models) == 1,
+        )
+        if not evaluation_paths:
+            continue
+        is_labeled = has_label_tokens(evaluation_paths, image_dir, resolved_class_depth)
+        _prepare_anomalib_evaluation_dataset(
+            image_paths=evaluation_paths,
+            image_root=image_dir,
             dataset_root=dataset_root,
             class_depth=resolved_class_depth,
+            is_labeled=is_labeled,
         )
-        rows.append(
-            _test_one_anomalib_patchcore(
+        if is_labeled:
+            result = _test_one_anomalib_patchcore(
                 label=label,
                 dataset_root=dataset_root,
                 checkpoint_path=Path(model_info["checkpoint_path"]),
                 output_dir=class_output_dir,
                 config=cfg,
             )
-        )
+        else:
+            predictions_path = _predict_one_anomalib_patchcore(
+                label=label,
+                dataset_root=dataset_root,
+                checkpoint_path=Path(model_info["checkpoint_path"]),
+                output_dir=class_output_dir,
+                config=cfg,
+            )
+            result = {
+                "label": label,
+                "checkpoint_path": str(model_info["checkpoint_path"]),
+                "predictions_path": str(predictions_path) if predictions_path else "",
+            }
+        rows.append(result)
+        predictions_path = Path(result.get("predictions_path", ""))
+        if predictions_path.is_file():
+            predictions = pd.read_csv(predictions_path)
+            predictions["class_label"] = label
+            prediction_frames.append(predictions)
 
     summary = pd.DataFrame(rows)
-    summary.to_csv(output_dir / "patchcore_anomalib_validation_summary.csv", index=False)
-    report_path = write_anomalib_patchcore_report(
+    if summary.empty:
+        available = ", ".join(sorted(class_models))
+        raise ValueError(
+            f"No evaluation images found under {image_dir}. "
+            f"Selected PatchCore labels: {available}"
+        )
+    summary.to_csv(output_dir / "patchcore_anomalib_evaluation_summary.csv", index=False)
+    write_anomalib_patchcore_report(
         summary=summary,
         output_dir=output_dir,
         config=cfg,
-        validation_image_dir=validation_image_dir,
+        validation_image_dir=image_dir,
     )
-    return report_path
+    if not prediction_frames:
+        return output_dir / "patchcore_report.md"
+    combined_predictions = pd.concat(prediction_frames, ignore_index=True)
+    _, evaluation_report = finalize_evaluation_outputs(
+        predictions=combined_predictions,
+        output_dir=output_dir,
+        method_name="PatchCore",
+        image_root=image_dir,
+        class_depth=resolved_class_depth,
+        histogram_bins=cfg.histogram_bins,
+        montage_samples=cfg.montage_samples,
+    )
+    return evaluation_report
 
 
 def _select_class_labels(
@@ -253,6 +318,43 @@ def _prepare_anomalib_folder_dataset(
         raise ValueError(f"No normal training images found for label {label}")
 
 
+def _prepare_anomalib_evaluation_dataset(
+    image_paths: list[Path],
+    image_root: Path,
+    dataset_root: Path,
+    class_depth: int,
+    is_labeled: bool,
+) -> None:
+    if dataset_root.exists():
+        shutil.rmtree(dataset_root)
+    train_good_dir = dataset_root / "train" / "good"
+    test_good_dir = dataset_root / "test" / "good"
+    test_bad_dir = dataset_root / "test" / "abnormal"
+    train_good_dir.mkdir(parents=True, exist_ok=True)
+    test_good_dir.mkdir(parents=True, exist_ok=True)
+    test_bad_dir.mkdir(parents=True, exist_ok=True)
+
+    if is_labeled:
+        normal_paths = [
+            path
+            for path in image_paths
+            if _has_good_token(path, image_root, class_depth)
+            or not _has_anomaly_token(path, image_root, class_depth)
+        ]
+        abnormal_paths = [
+            path
+            for path in image_paths
+            if _has_anomaly_token(path, image_root, class_depth)
+        ]
+        _link_images(normal_paths, test_good_dir)
+        _link_images(abnormal_paths, test_bad_dir)
+    else:
+        _link_images(image_paths, test_good_dir)
+
+    if not any(test_good_dir.iterdir()) and not any(test_bad_dir.iterdir()):
+        raise ValueError("No evaluation images were linked for PatchCore")
+
+
 def _paths_for_label(root: Path, label: str, class_depth: int) -> list[Path]:
     paths = []
     for image_path in list_images(root):
@@ -260,6 +362,27 @@ def _paths_for_label(root: Path, label: str, class_depth: int) -> list[Path]:
         if image_label == label:
             paths.append(image_path)
     return paths
+
+
+def _evaluation_paths_for_label(
+    image_dir: Path,
+    label: str,
+    class_depth: int,
+    allow_all_images: bool,
+) -> list[Path]:
+    paths = []
+    for image_path in list_images(image_dir):
+        try:
+            image_label = infer_labels_from_root([image_path], image_dir, class_depth)[0]
+        except ValueError:
+            continue
+        if image_label == label:
+            paths.append(image_path)
+    if paths:
+        return paths
+    if allow_all_images:
+        return list_images(image_dir)
+    return []
 
 
 def _has_good_token(path: Path, root: Path, class_depth: int) -> bool:
@@ -335,6 +458,25 @@ def _test_one_anomalib_patchcore(
         "predictions_path": str(predictions_path) if predictions_path else "",
         **_flatten_anomalib_metrics(test_result),
     }
+
+
+def _predict_one_anomalib_patchcore(
+    label: str,
+    dataset_root: Path,
+    checkpoint_path: Path,
+    output_dir: Path,
+    config: AnomalibPatchcoreConfig,
+) -> Path | None:
+    Folder, Patchcore, Engine = _load_anomalib_classes()
+    datamodule = _make_folder_datamodule(label, dataset_root, config)
+    model = _make_patchcore_model(Patchcore, config)
+    engine = Engine(
+        max_epochs=config.max_epochs,
+        accelerator=config.accelerator,
+        devices=config.devices,
+        default_root_dir=output_dir / "anomalib",
+    )
+    return _predict_and_report(engine, model, datamodule, output_dir, config, checkpoint_path)
 
 
 def _load_anomalib_classes() -> tuple[Any, Any, Any]:

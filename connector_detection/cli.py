@@ -13,11 +13,12 @@ from connector_detection.dual_branch import train_dual_branch as train_dual_bran
 from connector_detection.dual_branch import validate_dual_branch as validate_dual_branch_pipeline
 from connector_detection.dinomaly import (
     AnomalibDinomalyConfig,
+    evaluate_dinomaly_unified,
     predict_dinomaly_blind,
     train_dinomaly_unified,
     validate_dinomaly_unified,
 )
-from connector_detection.dinobank import DinoBankConfig, train_dinobank, validate_dinobank
+from connector_detection.dinobank import DinoBankConfig, evaluate_dinobank, train_dinobank, validate_dinobank
 from connector_detection.features import extract_embeddings
 from connector_detection.foundation_clustering import (
     FoundationClusterConfig,
@@ -26,6 +27,7 @@ from connector_detection.foundation_clustering import (
 )
 from connector_detection.patchcore import (
     AnomalibPatchcoreConfig,
+    evaluate_patchcore_per_class,
     train_patchcore_per_class,
     validate_patchcore_per_class,
 )
@@ -465,18 +467,21 @@ def patchcore_train(
     typer.echo(f"Saved {report_path}")
 
 
-@app.command("patchcore-validate")
+@app.command("patchcore-evaluate")
+@app.command("patchcore-validate", hidden=True)
 @app.command("validate-patchcore", hidden=True)
-def patchcore_validate(
+def patchcore_evaluate(
     config: Path,
     model: Path,
-    validation_image_dir: Path = typer.Option(
+    image_dir: Path = typer.Option(
         ...,
-        help="Validation root. Expected layout starts with the same class folders.",
+        "--image-dir",
+        "--validation-image-dir",
+        help="Evaluation image root. OK/NG folders are optional; unlabeled folders are classified by prediction.",
     ),
     output_dir: Path = typer.Option(
-        Path("outputs/patchcore_validation"),
-        help="Output directory for validation CSVs, plots, montage, and report.",
+        Path("outputs/patchcore_evaluation"),
+        help="Output directory for predictions, plots, classified images, montage, and report.",
     ),
     class_depth: int | None = typer.Option(
         None,
@@ -486,14 +491,14 @@ def patchcore_validate(
     class_label: list[str] | None = typer.Option(
         None,
         "--class-label",
-        help="Validate only this class label. Repeat the option to validate multiple classes.",
+        help="Evaluate only this class label. Repeat the option to evaluate multiple classes.",
     ),
     device: str | None = None,
 ) -> None:
     load_config(config)
-    report_path = validate_patchcore_per_class(
+    report_path = evaluate_patchcore_per_class(
         model_index_path=model,
-        validation_image_dir=validation_image_dir,
+        image_dir=image_dir,
         output_dir=output_dir,
         class_depth=class_depth,
         class_labels=class_label,
@@ -542,17 +547,20 @@ def dinobank_train(
     typer.echo(f"Saved {report_path}")
 
 
-@app.command("dinobank-validate")
-def dinobank_validate(
+@app.command("dinobank-evaluate")
+@app.command("dinobank-validate", hidden=True)
+def dinobank_evaluate(
     config: Path,
     model: Path,
-    validation_image_dir: Path = typer.Option(
+    image_dir: Path = typer.Option(
         ...,
-        help="Validation root with matching class folders.",
+        "--image-dir",
+        "--validation-image-dir",
+        help="Evaluation image root. OK/NG folders are optional; unlabeled folders are classified by prediction.",
     ),
     output_dir: Path = typer.Option(
-        Path("outputs/dinobank_validation"),
-        help="Output directory for DINO bank validation artifacts.",
+        Path("outputs/dinobank_evaluation"),
+        help="Output directory for predictions, plots, classified images, montage, and report.",
     ),
     class_depth: int | None = typer.Option(
         None,
@@ -562,14 +570,14 @@ def dinobank_validate(
     class_label: list[str] | None = typer.Option(
         None,
         "--class-label",
-        help="Validate only this class label. Repeat the option to validate multiple classes.",
+        help="Evaluate only this class label. Repeat the option to evaluate multiple classes.",
     ),
     device: str | None = None,
 ) -> None:
     load_config(config)
-    report_path = validate_dinobank(
+    report_path = evaluate_dinobank(
         model_path=model,
-        validation_image_dir=validation_image_dir,
+        image_dir=image_dir,
         output_dir=output_dir,
         class_depth=class_depth,
         class_labels=class_label,
@@ -642,17 +650,21 @@ def dinomaly_train(
     typer.echo(f"Saved {report_path}")
 
 
-@app.command("dinomaly-validate")
-def dinomaly_validate(
+@app.command("dinomaly-evaluate")
+@app.command("dinomaly-validate", hidden=True)
+@app.command("dinomaly-predict", hidden=True)
+def dinomaly_evaluate(
     config: Path,
     model: Path,
-    validation_image_dir: Path = typer.Option(
+    image_dir: Path = typer.Option(
         ...,
-        help="Validation root with matching class folders.",
+        "--image-dir",
+        "--validation-image-dir",
+        help="Evaluation image root. OK/NG folders are optional; unlabeled folders are classified by prediction.",
     ),
     output_dir: Path = typer.Option(
-        Path("outputs/dinomaly_validation"),
-        help="Output directory for Dinomaly validation artifacts.",
+        Path("outputs/dinomaly_evaluation"),
+        help="Output directory for predictions, plots, classified images, heatmaps, montage, and report.",
     ),
     class_depth: int | None = typer.Option(
         None,
@@ -662,45 +674,11 @@ def dinomaly_validate(
     class_label: list[str] | None = typer.Option(
         None,
         "--class-label",
-        help="Validate only this class label. Repeat the option to validate multiple classes.",
+        help="Evaluate only this class label. Repeat the option to evaluate multiple classes.",
     ),
 ) -> None:
     load_config(config)
-    report_path = validate_dinomaly_unified(
-        model_index_path=model,
-        validation_image_dir=validation_image_dir,
-        output_dir=output_dir,
-        class_depth=class_depth,
-        class_labels=class_label,
-    )
-    typer.echo(f"Saved {report_path}")
-
-
-@app.command("dinomaly-predict")
-def dinomaly_predict(
-    config: Path,
-    model: Path,
-    image_dir: Path = typer.Option(
-        ...,
-        help="Blind test image root. Images do not need OK/NG labels.",
-    ),
-    output_dir: Path = typer.Option(
-        Path("outputs/dinomaly_blind"),
-        help="Output directory for blind prediction CSVs, charts, heatmaps, and OK/NG folders.",
-    ),
-    class_depth: int = typer.Option(
-        1,
-        min=1,
-        help="How many path components under image_dir form the class label when --class-label is used.",
-    ),
-    class_label: list[str] | None = typer.Option(
-        None,
-        "--class-label",
-        help="Predict only this class label. Repeat the option to use multiple classes.",
-    ),
-) -> None:
-    load_config(config)
-    report_path = predict_dinomaly_blind(
+    report_path = evaluate_dinomaly_unified(
         model_index_path=model,
         image_dir=image_dir,
         output_dir=output_dir,

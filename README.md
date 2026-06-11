@@ -152,24 +152,24 @@ uv run connector-detection patchcore-train \
   --output-dir outputs/patchcore_pin_bands
 ```
 
-Validate an existing model:
+Evaluate an existing model on labeled validation data or unlabeled blind data:
 
 ```bash
-uv run connector-detection patchcore-validate \
+uv run connector-detection patchcore-evaluate \
   configs/patchcore.example.toml \
   outputs/patchcore_pin_bands/patchcore_models.joblib \
-  --validation-image-dir data/pin_band_val \
-  --output-dir outputs/patchcore_validation
+  --image-dir data/pin_band_val \
+  --output-dir outputs/patchcore_evaluation
 ```
 
-Validate only one class:
+Evaluate only one class:
 
 ```bash
-uv run connector-detection patchcore-validate \
+uv run connector-detection patchcore-evaluate \
   configs/patchcore.example.toml \
   outputs/patchcore_pin_bands/patchcore_models.joblib \
-  --validation-image-dir data/pin_band_val \
-  --output-dir outputs/patchcore_validation_20pin \
+  --image-dir data/pin_band_val \
+  --output-dir outputs/patchcore_evaluation_20pin \
   --class-label 20pin
 ```
 
@@ -191,8 +191,12 @@ Main outputs:
 - `patchcore_report.md`: thin project-level summary.
 - `classes/*/anomalib`: anomalib trainer logs, checkpoints, and visual artifacts.
 - `classes/*/predictions.csv`: prediction scores when anomalib returns prediction batches.
+- `predictions.csv`: merged evaluation predictions across selected classes.
+- `evaluation_report.md`: OK/NG/UNKNOWN prediction summary.
+- `classified/OK|NG|UNKNOWN`: images copied by prediction result.
+- `analysis/*.png`: prediction counts, score histograms, top score chart, and confusion matrix when labels exist.
 
-Legacy aliases still work: `train-patchcore` and `validate-patchcore`.
+Legacy aliases still work: `train-patchcore`, `patchcore-validate`, and `validate-patchcore`.
 
 ## DINOv2 + Structural Bank Baseline
 
@@ -220,25 +224,27 @@ uv run connector-detection dinobank-train \
   --output-dir outputs/dinobank_pin_bands
 ```
 
-Validate an existing model:
+Evaluate an existing model on labeled validation data or unlabeled blind data:
 
 ```bash
-uv run connector-detection dinobank-validate \
+uv run connector-detection dinobank-evaluate \
   configs/dinobank.example.toml \
   outputs/dinobank_pin_bands/dinobank_model.joblib \
-  --validation-image-dir data/pin_band_val \
-  --output-dir outputs/dinobank_validation
+  --image-dir data/pin_band_val \
+  --output-dir outputs/dinobank_evaluation
 ```
 
 Main outputs:
 
 - `dinobank_model.joblib`: per-class feature banks, scalers, PCA, thresholds.
 - `dinobank_summary.csv`: per-class train distance statistics and thresholds.
-- `validation/predictions.csv`: image-level anomaly score and OK/NG prediction.
-- `validation/dinobank_validation_summary.csv`: per-class validation metrics.
-- `validation/plots/score_histogram.png`: OK/NG score distribution.
-- `validation/plots/validation_umap.png`: UMAP review plot when enough samples exist.
-- `validation/montage/top_anomaly_scores.jpg`: highest-score validation samples.
+- `validation/predictions.csv`: image-level anomaly score and OK/NG prediction when training uses validation.
+- `predictions.csv`: evaluation predictions for `dinobank-evaluate`.
+- `evaluation_report.md`: OK/NG/UNKNOWN prediction summary.
+- `classified/OK|NG|UNKNOWN`: images copied by prediction result.
+- `analysis/*.png`: prediction counts, score histograms, top score chart, and confusion matrix when labels exist.
+- `plots/validation_umap.png`: UMAP review plot when enough samples exist.
+- `montage/top_anomaly_scores.jpg`: highest-score evaluation samples.
 
 Thresholds are set from normal training images using leave-one-out nearest
 distance quantiles. The default is `dinobank_threshold_quantile = 0.995`.
@@ -259,34 +265,36 @@ uv run connector-detection dinomaly-train \
   --output-dir outputs/dinomaly_pin_bands
 ```
 
-Validate an existing model:
+Evaluate an existing model on labeled validation data or unlabeled blind data:
 
 ```bash
-uv run connector-detection dinomaly-validate \
+uv run connector-detection dinomaly-evaluate \
   configs/dinomaly.example.toml \
   outputs/dinomaly_pin_bands/dinomaly_model.joblib \
-  --validation-image-dir data/pin_band_val \
-  --output-dir outputs/dinomaly_validation
+  --image-dir data/pin_band_val \
+  --output-dir outputs/dinomaly_evaluation
 ```
 
-Run blind prediction on unlabeled images:
+The same command also handles blind prediction on unlabeled images:
 
 ```bash
-uv run connector-detection dinomaly-predict \
+uv run connector-detection dinomaly-evaluate \
   configs/dinomaly.example.toml \
   outputs/dinomaly_pin_bands/dinomaly_model.joblib \
   --image-dir data/blind_pin_bands \
-  --output-dir outputs/dinomaly_blind
+  --output-dir outputs/dinomaly_blind_evaluation
 ```
 
-Blind prediction outputs:
+Evaluation outputs:
 
-- `blind_predictions.csv`: per-image score, OK/NG prediction, and heatmap paths.
+- `predictions.csv`: per-image score, OK/NG prediction, and heatmap paths.
+- `evaluation_report.md`: OK/NG/UNKNOWN prediction summary.
 - `classified/OK`: original images predicted OK.
 - `classified/NG`: original images predicted NG.
 - `classified/OK_overlays` / `classified/NG_overlays`: copied overlay heatmaps.
 - `analysis/prediction_counts.png`: OK/NG count chart.
 - `analysis/score_histogram_by_prediction.png`: anomaly score distribution.
+- `analysis/confusion_matrix.png`: confusion matrix when OK/NG labels exist.
 - `analysis/top_anomaly_scores.png`: highest anomaly score bar chart.
 
 Use only selected classes:
@@ -305,6 +313,7 @@ Main outputs:
 - `dinomaly_model.joblib`: checkpoint index, config, and class labels.
 - `dinomaly_anomalib_summary.csv`: anomalib metrics and prediction artifact paths.
 - `dinomaly_report.md`: compact training or validation report.
+- `evaluation_report.md`: evaluate-mode summary.
 - `anomalib/`: anomalib trainer logs, checkpoints, and visual artifacts.
 - `predictions.csv`: prediction scores when anomalib returns prediction batches.
 - `heatmaps/*_raw_heatmap.png`: raw anomaly heatmaps.
@@ -324,8 +333,8 @@ After running both baselines on the same validation root:
 
 ```bash
 uv run connector-detection compare-baselines \
-  --patchcore-predictions outputs/patchcore_validation \
-  --dinobank-predictions outputs/dinobank_validation \
+  --patchcore-predictions outputs/patchcore_evaluation \
+  --dinobank-predictions outputs/dinobank_evaluation \
   --output-dir outputs/baseline_comparison
 ```
 

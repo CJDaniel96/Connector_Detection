@@ -36,6 +36,8 @@ os.environ.setdefault(
 )
 import matplotlib.pyplot as plt
 
+from connector_detection.evaluation import finalize_evaluation_outputs, has_label_tokens
+
 
 @dataclass(frozen=True)
 class AnomalibDinomalyConfig:
@@ -123,6 +125,24 @@ def validate_dinomaly_unified(
     class_labels: list[str] | None = None,
     config: AnomalibDinomalyConfig | None = None,
 ) -> Path:
+    return evaluate_dinomaly_unified(
+        model_index_path=model_index_path,
+        image_dir=validation_image_dir,
+        output_dir=output_dir,
+        class_depth=class_depth,
+        class_labels=class_labels,
+        config=config,
+    )
+
+
+def evaluate_dinomaly_unified(
+    model_index_path: Path,
+    image_dir: Path,
+    output_dir: Path,
+    class_depth: int | None = None,
+    class_labels: list[str] | None = None,
+    config: AnomalibDinomalyConfig | None = None,
+) -> Path:
     payload = joblib.load(model_index_path)
     cfg = config or payload.get("config") or AnomalibDinomalyConfig()
     resolved_class_depth = class_depth or int(payload.get("class_depth", 1))
@@ -137,28 +157,70 @@ def validate_dinomaly_unified(
 
     output_dir.mkdir(parents=True, exist_ok=True)
     dataset_root = output_dir / "dataset"
-    _prepare_unified_folder_dataset(
-        train_image_dir=None,
-        validation_image_dir=validation_image_dir,
-        dataset_root=dataset_root,
-        class_depth=resolved_class_depth,
-        class_labels=class_labels,
+    image_paths = _filter_class_labels(
+        list_images(image_dir),
+        image_dir,
+        resolved_class_depth,
+        class_labels,
     )
-    result = _test_one_dinomaly(
-        dataset_root=dataset_root,
-        checkpoint_path=Path(payload["checkpoint_path"]),
-        output_dir=output_dir,
-        config=cfg,
-    )
+    if not image_paths:
+        raise ValueError(f"No evaluation images found under {image_dir}")
+    is_labeled = has_label_tokens(image_paths, image_dir, resolved_class_depth)
+    if is_labeled:
+        _prepare_unified_folder_dataset(
+            train_image_dir=None,
+            validation_image_dir=image_dir,
+            dataset_root=dataset_root,
+            class_depth=resolved_class_depth,
+            class_labels=class_labels,
+        )
+        result = _test_one_dinomaly(
+            dataset_root=dataset_root,
+            checkpoint_path=Path(payload["checkpoint_path"]),
+            output_dir=output_dir,
+            config=cfg,
+        )
+    else:
+        _prepare_blind_folder_dataset(
+            image_dir=image_dir,
+            dataset_root=dataset_root,
+            class_depth=resolved_class_depth,
+            class_labels=class_labels,
+        )
+        predictions_path = _predict_one_dinomaly(
+            dataset_root=dataset_root,
+            checkpoint_path=Path(payload["checkpoint_path"]),
+            output_dir=output_dir,
+            config=cfg,
+        )
+        result = {
+            "label": "unified",
+            "checkpoint_path": str(payload["checkpoint_path"]),
+            "predictions_path": str(predictions_path) if predictions_path else "",
+        }
+
     summary = pd.DataFrame([result])
-    summary.to_csv(output_dir / "dinomaly_anomalib_validation_summary.csv", index=False)
-    report_path = write_anomalib_dinomaly_report(
+    summary.to_csv(output_dir / "dinomaly_anomalib_evaluation_summary.csv", index=False)
+    predictions_path = output_dir / "predictions.csv"
+    if not predictions_path.exists():
+        raise RuntimeError("Dinomaly did not return prediction rows for evaluation data.")
+    predictions = pd.read_csv(predictions_path)
+    _, evaluation_report = finalize_evaluation_outputs(
+        predictions=predictions,
+        output_dir=output_dir,
+        method_name="Dinomaly",
+        image_root=image_dir,
+        class_depth=resolved_class_depth,
+        histogram_bins=cfg.histogram_bins,
+        montage_samples=cfg.montage_samples,
+    )
+    write_anomalib_dinomaly_report(
         summary=summary,
         output_dir=output_dir,
         config=cfg,
-        validation_image_dir=validation_image_dir,
+        validation_image_dir=image_dir if is_labeled else None,
     )
-    return report_path
+    return evaluation_report
 
 
 def predict_dinomaly_blind(
@@ -169,43 +231,14 @@ def predict_dinomaly_blind(
     class_labels: list[str] | None = None,
     config: AnomalibDinomalyConfig | None = None,
 ) -> Path:
-    payload = joblib.load(model_index_path)
-    cfg = config or payload.get("config") or AnomalibDinomalyConfig()
-    known_labels = set(payload.get("class_labels", []))
-    requested = set(class_labels or [])
-    missing = sorted(requested - known_labels)
-    if missing:
-        raise ValueError(
-            f"Unknown Dinomaly class label(s): {', '.join(missing)}. "
-            f"Available labels: {', '.join(sorted(known_labels))}"
-        )
-
-    output_dir.mkdir(parents=True, exist_ok=True)
-    dataset_root = output_dir / "dataset"
-    _prepare_blind_folder_dataset(
+    return evaluate_dinomaly_unified(
+        model_index_path=model_index_path,
         image_dir=image_dir,
-        dataset_root=dataset_root,
+        output_dir=output_dir,
         class_depth=class_depth,
         class_labels=class_labels,
+        config=config,
     )
-    predictions_path = _predict_one_dinomaly(
-        dataset_root=dataset_root,
-        checkpoint_path=Path(payload["checkpoint_path"]),
-        output_dir=output_dir,
-        config=cfg,
-    )
-    if predictions_path is None:
-        raise RuntimeError("Dinomaly did not return prediction rows for blind data.")
-
-    predictions = pd.read_csv(predictions_path)
-    predictions = _add_blind_prediction_columns(predictions)
-    blind_predictions_path = output_dir / "blind_predictions.csv"
-    predictions.to_csv(blind_predictions_path, index=False)
-
-    _copy_blind_predictions(predictions, output_dir / "classified")
-    _plot_blind_summary(predictions, output_dir / "analysis", cfg.histogram_bins)
-    _write_blind_report(output_dir, blind_predictions_path, predictions)
-    return output_dir / "blind_report.md"
 
 
 def _prepare_unified_folder_dataset(
@@ -823,11 +856,17 @@ def _filter_class_labels(
     if not class_labels:
         return paths
     wanted = set(class_labels)
-    return [
-        path
-        for path in paths
-        if infer_labels_from_root([path], root, class_depth)[0] in wanted
-    ]
+    selected = []
+    for path in paths:
+        try:
+            label = infer_labels_from_root([path], root, class_depth)[0]
+        except ValueError:
+            if len(wanted) == 1:
+                selected.append(path)
+            continue
+        if label in wanted:
+            selected.append(path)
+    return selected
 
 
 def _has_good_token(path: Path, root: Path, class_depth: int) -> bool:

@@ -14,6 +14,7 @@ from sklearn.decomposition import PCA
 from sklearn.metrics import accuracy_score, f1_score, precision_score, recall_score, roc_auc_score
 from sklearn.preprocessing import StandardScaler
 
+from connector_detection.evaluation import finalize_evaluation_outputs, has_label_tokens
 from connector_detection.features import build_combined_embeddings
 from connector_detection.images import list_images
 from connector_detection.patchcore import (
@@ -167,6 +168,24 @@ def validate_dinobank(
     class_labels: list[str] | None = None,
     device: str | None = None,
 ) -> Path:
+    return evaluate_dinobank(
+        model_path=model_path,
+        image_dir=validation_image_dir,
+        output_dir=output_dir,
+        class_depth=class_depth,
+        class_labels=class_labels,
+        device=device,
+    )
+
+
+def evaluate_dinobank(
+    model_path: Path,
+    image_dir: Path,
+    output_dir: Path,
+    class_depth: int | None = None,
+    class_labels: list[str] | None = None,
+    device: str | None = None,
+) -> Path:
     model: DinoBankModel = joblib.load(model_path)
     resolved_class_depth = class_depth or model.class_depth
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -178,14 +197,15 @@ def validate_dinobank(
             f"Available labels: {', '.join(model.labels)}"
         )
 
-    paths = _filter_class_labels(
-        list_images(validation_image_dir),
-        validation_image_dir,
-        resolved_class_depth,
-        class_labels,
+    paths, labels = _evaluation_paths_and_labels(
+        paths=list_images(image_dir),
+        root=image_dir,
+        class_depth=resolved_class_depth,
+        class_labels=class_labels,
+        model_labels=model.labels,
     )
     if not paths:
-        raise ValueError(f"No validation images found under {validation_image_dir}")
+        raise ValueError(f"No evaluation images found under {image_dir}")
 
     embeddings, manifest, _ = _extract_raw_embeddings(
         paths=paths,
@@ -195,8 +215,12 @@ def validate_dinobank(
         device=device,
     )
     vectors = _transform_vectors(embeddings, model)
-    labels = infer_labels_from_root(paths, validation_image_dir, resolved_class_depth)
-    ground_truth = [_ground_truth_label(path, validation_image_dir, resolved_class_depth) for path in paths]
+    is_labeled = has_label_tokens(paths, image_dir, resolved_class_depth)
+    ground_truth = (
+        [_ground_truth_label(path, image_dir, resolved_class_depth) for path in paths]
+        if is_labeled
+        else None
+    )
     predictions = _score_known_labels(
         image_paths=paths,
         labels=labels,
@@ -204,17 +228,87 @@ def validate_dinobank(
         model=model,
         ground_truth=ground_truth,
     )
+    predictions["class_label"] = labels
     predictions_path = output_dir / "predictions.csv"
     predictions.to_csv(predictions_path, index=False)
     manifest["label"] = labels
-    manifest["ground_truth"] = ground_truth
-    manifest.to_csv(output_dir / "validation_manifest.csv", index=False)
+    if ground_truth is not None:
+        manifest["ground_truth"] = ground_truth
+    manifest.to_csv(output_dir / "evaluation_manifest.csv", index=False)
 
     summary = _summarize_predictions(predictions)
-    summary.to_csv(output_dir / "dinobank_validation_summary.csv", index=False)
+    summary.to_csv(output_dir / "dinobank_evaluation_summary.csv", index=False)
     _plot_histogram(predictions, output_dir / "plots", model.config.histogram_bins)
     _export_montage(predictions, output_dir / "montage", model.config.montage_samples)
     _plot_umap(vectors, labels, predictions, output_dir / "plots", model.config.random_state)
+    _, evaluation_report = finalize_evaluation_outputs(
+        predictions=predictions,
+        output_dir=output_dir,
+        method_name="DINO bank",
+        image_root=image_dir,
+        class_depth=resolved_class_depth,
+        histogram_bins=model.config.histogram_bins,
+        montage_samples=model.config.montage_samples,
+    )
+    return evaluation_report
+
+
+def _evaluation_paths_and_labels(
+    paths: list[Path],
+    root: Path,
+    class_depth: int,
+    class_labels: list[str] | None,
+    model_labels: list[str],
+) -> tuple[list[Path], list[str]]:
+    wanted = set(class_labels or model_labels)
+    selected_paths = []
+    selected_labels = []
+    for path in paths:
+        label = _label_for_evaluation_path(path, root, class_depth, class_labels, model_labels)
+        if label in wanted:
+            selected_paths.append(path)
+            selected_labels.append(label)
+    if not selected_paths and paths:
+        available = ", ".join(model_labels)
+        raise ValueError(
+            "Could not infer class labels from the evaluation folder. "
+            "For a flat blind-test folder, pass exactly one --class-label. "
+            f"Available labels: {available}"
+        )
+    return selected_paths, selected_labels
+
+
+def _label_for_evaluation_path(
+    path: Path,
+    root: Path,
+    class_depth: int,
+    class_labels: list[str] | None,
+    model_labels: list[str],
+) -> str:
+    try:
+        label = infer_labels_from_root([path], root, class_depth)[0]
+        if label in model_labels:
+            return label
+    except ValueError:
+        pass
+    if class_labels and len(class_labels) == 1:
+        return class_labels[0]
+    if len(model_labels) == 1:
+        return model_labels[0]
+    available = ", ".join(model_labels)
+    raise ValueError(
+        f"Cannot infer class label for {path}. "
+        "Use --class-label for flat or unlabeled folders. "
+        f"Available labels: {available}"
+    )
+
+
+def _write_legacy_dinobank_report(
+    output_dir: Path,
+    model_path: Path,
+    summary: pd.DataFrame,
+    predictions_path: Path,
+) -> Path:
     return _write_report(
         output_dir=output_dir,
         model_path=model_path,
