@@ -167,6 +167,26 @@ uv run connector-detection dinomaly-validate \
   --output-dir outputs/dinomaly_validation
 ```
 
+Run blind prediction on unlabeled images:
+
+```bash
+uv run connector-detection dinomaly-predict \
+  configs/dinomaly.example.toml \
+  outputs/dinomaly_pin_bands/dinomaly_model.joblib \
+  --image-dir data/blind_pin_bands \
+  --output-dir outputs/dinomaly_blind
+```
+
+Blind prediction outputs:
+
+- `blind_predictions.csv`: per-image score, OK/NG prediction, and heatmap paths.
+- `classified/OK`: original images predicted OK.
+- `classified/NG`: original images predicted NG.
+- `classified/OK_overlays` / `classified/NG_overlays`: copied overlay heatmaps.
+- `analysis/prediction_counts.png`: OK/NG count chart.
+- `analysis/score_histogram_by_prediction.png`: anomaly score distribution.
+- `analysis/top_anomaly_scores.png`: highest anomaly score bar chart.
+
 Use only selected classes:
 
 ```bash

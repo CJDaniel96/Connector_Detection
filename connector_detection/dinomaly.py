@@ -3,6 +3,7 @@ from __future__ import annotations
 from dataclasses import dataclass
 from pathlib import Path
 import os
+import shutil
 import tempfile
 from typing import Any
 
@@ -160,6 +161,53 @@ def validate_dinomaly_unified(
     return report_path
 
 
+def predict_dinomaly_blind(
+    model_index_path: Path,
+    image_dir: Path,
+    output_dir: Path,
+    class_depth: int = 1,
+    class_labels: list[str] | None = None,
+    config: AnomalibDinomalyConfig | None = None,
+) -> Path:
+    payload = joblib.load(model_index_path)
+    cfg = config or payload.get("config") or AnomalibDinomalyConfig()
+    known_labels = set(payload.get("class_labels", []))
+    requested = set(class_labels or [])
+    missing = sorted(requested - known_labels)
+    if missing:
+        raise ValueError(
+            f"Unknown Dinomaly class label(s): {', '.join(missing)}. "
+            f"Available labels: {', '.join(sorted(known_labels))}"
+        )
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    dataset_root = output_dir / "dataset"
+    _prepare_blind_folder_dataset(
+        image_dir=image_dir,
+        dataset_root=dataset_root,
+        class_depth=class_depth,
+        class_labels=class_labels,
+    )
+    predictions_path = _predict_one_dinomaly(
+        dataset_root=dataset_root,
+        checkpoint_path=Path(payload["checkpoint_path"]),
+        output_dir=output_dir,
+        config=cfg,
+    )
+    if predictions_path is None:
+        raise RuntimeError("Dinomaly did not return prediction rows for blind data.")
+
+    predictions = pd.read_csv(predictions_path)
+    predictions = _add_blind_prediction_columns(predictions)
+    blind_predictions_path = output_dir / "blind_predictions.csv"
+    predictions.to_csv(blind_predictions_path, index=False)
+
+    _copy_blind_predictions(predictions, output_dir / "classified")
+    _plot_blind_summary(predictions, output_dir / "analysis", cfg.histogram_bins)
+    _write_blind_report(output_dir, blind_predictions_path, predictions)
+    return output_dir / "blind_report.md"
+
+
 def _prepare_unified_folder_dataset(
     train_image_dir: Path | None,
     validation_image_dir: Path | None,
@@ -213,6 +261,25 @@ def _prepare_unified_folder_dataset(
         raise ValueError("No normal training images found for Dinomaly training")
 
 
+def _prepare_blind_folder_dataset(
+    image_dir: Path,
+    dataset_root: Path,
+    class_depth: int,
+    class_labels: list[str] | None,
+) -> None:
+    if dataset_root.exists():
+        shutil.rmtree(dataset_root)
+    test_good_dir = dataset_root / "test" / "good"
+    test_good_dir.mkdir(parents=True, exist_ok=True)
+
+    image_paths = list_images(image_dir)
+    if class_labels:
+        image_paths = _filter_class_labels(image_paths, image_dir, class_depth, class_labels)
+    if not image_paths:
+        raise ValueError(f"No blind test images found under {image_dir}")
+    _link_images(image_paths, test_good_dir)
+
+
 def _fit_one_dinomaly(
     dataset_root: Path,
     output_dir: Path,
@@ -237,6 +304,31 @@ def _fit_one_dinomaly(
         "predictions_path": str(predictions_path) if predictions_path else "",
         **_flatten_anomalib_metrics(test_result),
     }
+
+
+def _predict_one_dinomaly(
+    dataset_root: Path,
+    checkpoint_path: Path,
+    output_dir: Path,
+    config: AnomalibDinomalyConfig,
+) -> Path | None:
+    Folder, Dinomaly, Engine = _load_anomalib_dinomaly_classes()
+    datamodule = _make_folder_datamodule(dataset_root, config)
+    model = _make_dinomaly_model(Dinomaly, config)
+    engine = Engine(
+        max_epochs=config.max_epochs,
+        accelerator=config.accelerator,
+        devices=config.devices,
+        default_root_dir=output_dir / "anomalib",
+    )
+    return _predict_and_visualize(
+        engine,
+        model,
+        datamodule,
+        output_dir,
+        config,
+        checkpoint_path,
+    )
 
 
 def _test_one_dinomaly(
@@ -372,16 +464,17 @@ def _predict_and_visualize(
 
     rows = []
     heatmap_dir = output_dir / "heatmaps"
+    heatmap_alpha = getattr(config, "heatmap_alpha", 0.45)
     for batch in [] if predictions is None else predictions:
-        rows.extend(_prediction_batch_to_rows(batch, heatmap_dir, config.heatmap_alpha))
+        rows.extend(_prediction_batch_to_rows(batch, heatmap_dir, heatmap_alpha))
     if not rows:
         return None
 
     df = pd.DataFrame(rows)
     path = output_dir / "predictions.csv"
     df.to_csv(path, index=False)
-    _plot_score_histogram(df, output_dir / "plots", config.histogram_bins)
-    _export_top_score_montages(df, output_dir / "montage", config.montage_samples)
+    _plot_score_histogram(df, output_dir / "plots", getattr(config, "histogram_bins", 30))
+    _export_top_score_montages(df, output_dir / "montage", getattr(config, "montage_samples", 30))
     return path
 
 
@@ -571,6 +664,136 @@ def _save_montage(df: pd.DataFrame, path_column: str, output_path: Path) -> None
             )
             draw.text((tile_x + 4, tile_y + 4), f"{row.pred_score:.3f}", fill=(0, 0, 0))
     montage.save(output_path)
+
+
+def _add_blind_prediction_columns(predictions: pd.DataFrame) -> pd.DataFrame:
+    output = predictions.copy()
+    output["source_image_path"] = output["image_path"].map(lambda value: str(Path(value).resolve()))
+    output["prediction"] = [
+        _prediction_bucket(label)
+        for label in output.get("pred_label", pd.Series([None] * len(output)))
+    ]
+    return output
+
+
+def _prediction_bucket(value: object) -> str:
+    if pd.isna(value):
+        return "UNKNOWN"
+    text = str(value).strip().lower()
+    if text in {"0", "false", "good", "normal", "ok", "pass"}:
+        return "OK"
+    if text in {"1", "true", "ng", "bad", "abnormal", "anomaly", "anomalous", "defect"}:
+        return "NG"
+    return "NG" if text not in {"none", ""} else "UNKNOWN"
+
+
+def _copy_blind_predictions(predictions: pd.DataFrame, output_dir: Path) -> None:
+    for bucket in ("OK", "NG", "UNKNOWN"):
+        (output_dir / bucket).mkdir(parents=True, exist_ok=True)
+        (output_dir / f"{bucket}_overlays").mkdir(parents=True, exist_ok=True)
+
+    for row in predictions.itertuples(index=False):
+        bucket = str(row.prediction)
+        source = Path(row.source_image_path)
+        if source.exists():
+            _copy_image(source, output_dir / bucket)
+        overlay_value = str(getattr(row, "overlay_path", "")).strip()
+        overlay_path = Path(overlay_value) if overlay_value else None
+        if overlay_path is not None and overlay_path.is_file():
+            _copy_image(overlay_path, output_dir / f"{bucket}_overlays")
+
+
+def _copy_image(source: Path, output_dir: Path) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    target = output_dir / source.name
+    if target.exists():
+        target = output_dir / f"{source.stem}_{abs(hash(source))}{source.suffix}"
+    shutil.copy2(source, target)
+
+
+def _plot_blind_summary(predictions: pd.DataFrame, output_dir: Path, bins: int) -> None:
+    output_dir.mkdir(parents=True, exist_ok=True)
+    counts = predictions["prediction"].value_counts().reindex(["OK", "NG", "UNKNOWN"], fill_value=0)
+
+    plt.figure(figsize=(6, 4))
+    counts.plot(kind="bar", color=["#3b7d4f", "#b73737", "#777777"])
+    plt.title("Dinomaly blind prediction counts")
+    plt.xlabel("prediction")
+    plt.ylabel("count")
+    plt.xticks(rotation=0)
+    plt.tight_layout()
+    plt.savefig(output_dir / "prediction_counts.png", dpi=160)
+    plt.close()
+
+    if "pred_score" in predictions:
+        scores = pd.to_numeric(predictions["pred_score"], errors="coerce")
+        if not scores.dropna().empty:
+            plt.figure(figsize=(8, 5))
+            for bucket, group in predictions.groupby("prediction"):
+                pd.to_numeric(group["pred_score"], errors="coerce").dropna().hist(
+                    bins=bins,
+                    alpha=0.55,
+                    label=str(bucket),
+                )
+            plt.title("Dinomaly blind anomaly scores")
+            plt.xlabel("pred_score")
+            plt.ylabel("count")
+            plt.legend()
+            plt.tight_layout()
+            plt.savefig(output_dir / "score_histogram_by_prediction.png", dpi=160)
+            plt.close()
+
+            sorted_scores = predictions.copy()
+            sorted_scores["pred_score"] = scores
+            sorted_scores = sorted_scores.dropna(subset=["pred_score"]).sort_values(
+                "pred_score",
+                ascending=False,
+            )
+            top = sorted_scores.head(min(50, len(sorted_scores)))
+            if not top.empty:
+                plt.figure(figsize=(10, max(4, min(12, len(top) * 0.24))))
+                plt.barh(
+                    [Path(path).name for path in top["source_image_path"]][::-1],
+                    top["pred_score"].to_numpy()[::-1],
+                    color="#b73737",
+                )
+                plt.title("Top Dinomaly anomaly scores")
+                plt.xlabel("pred_score")
+                plt.tight_layout()
+                plt.savefig(output_dir / "top_anomaly_scores.png", dpi=160)
+                plt.close()
+
+
+def _write_blind_report(
+    output_dir: Path,
+    predictions_path: Path,
+    predictions: pd.DataFrame,
+) -> Path:
+    counts = predictions["prediction"].value_counts().reindex(["OK", "NG", "UNKNOWN"], fill_value=0)
+    lines = [
+        "# Dinomaly Blind Prediction Report",
+        "",
+        f"- Predictions: `{predictions_path}`",
+        f"- Total images: {len(predictions)}",
+        f"- OK: {int(counts['OK'])}",
+        f"- NG: {int(counts['NG'])}",
+        f"- UNKNOWN: {int(counts['UNKNOWN'])}",
+        "",
+        "## Artifacts",
+        "",
+        "- `classified/OK`: original images predicted OK",
+        "- `classified/NG`: original images predicted NG",
+        "- `classified/*_overlays`: copied heatmap overlays by prediction bucket",
+        "- `heatmaps`: raw and overlay anomaly maps",
+        "- `analysis/prediction_counts.png`: OK/NG count chart",
+        "- `analysis/score_histogram_by_prediction.png`: score distribution by prediction",
+        "- `analysis/top_anomaly_scores.png`: top anomaly score bar chart",
+        "- `montage/top_anomaly_scores.jpg`: highest-score input montage",
+        "- `montage/top_anomaly_overlays.jpg`: highest-score overlay montage",
+    ]
+    report_path = output_dir / "blind_report.md"
+    report_path.write_text("\n".join(lines))
+    return report_path
 
 
 def _normal_training_paths(

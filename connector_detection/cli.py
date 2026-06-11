@@ -13,6 +13,7 @@ from connector_detection.dual_branch import train_dual_branch as train_dual_bran
 from connector_detection.dual_branch import validate_dual_branch as validate_dual_branch_pipeline
 from connector_detection.dinomaly import (
     AnomalibDinomalyConfig,
+    predict_dinomaly_blind,
     train_dinomaly_unified,
     validate_dinomaly_unified,
 )
@@ -526,6 +527,40 @@ def dinomaly_validate(
     report_path = validate_dinomaly_unified(
         model_index_path=model,
         validation_image_dir=validation_image_dir,
+        output_dir=output_dir,
+        class_depth=class_depth,
+        class_labels=class_label,
+    )
+    typer.echo(f"Saved {report_path}")
+
+
+@app.command("dinomaly-predict")
+def dinomaly_predict(
+    config: Path,
+    model: Path,
+    image_dir: Path = typer.Option(
+        ...,
+        help="Blind test image root. Images do not need OK/NG labels.",
+    ),
+    output_dir: Path = typer.Option(
+        Path("outputs/dinomaly_blind"),
+        help="Output directory for blind prediction CSVs, charts, heatmaps, and OK/NG folders.",
+    ),
+    class_depth: int = typer.Option(
+        1,
+        min=1,
+        help="How many path components under image_dir form the class label when --class-label is used.",
+    ),
+    class_label: list[str] | None = typer.Option(
+        None,
+        "--class-label",
+        help="Predict only this class label. Repeat the option to use multiple classes.",
+    ),
+) -> None:
+    load_config(config)
+    report_path = predict_dinomaly_blind(
+        model_index_path=model,
+        image_dir=image_dir,
         output_dir=output_dir,
         class_depth=class_depth,
         class_labels=class_label,
