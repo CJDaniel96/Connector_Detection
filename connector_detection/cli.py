@@ -389,6 +389,11 @@ def patchcore_train(
         min=1,
         help="How many path components under the root form the class label.",
     ),
+    class_label: list[str] | None = typer.Option(
+        None,
+        "--class-label",
+        help="Train only this class label. Repeat the option to train multiple classes.",
+    ),
     backbone: str | None = typer.Option(
         None,
         help="Override config patchcore_backbone.",
@@ -454,6 +459,7 @@ def patchcore_train(
         class_depth=class_depth,
         validation_image_dir=validation_image_dir,
         config=anomalib_cfg,
+        class_labels=class_label,
     )
     typer.echo(f"Saved {model_path}")
     typer.echo(f"Saved {report_path}")

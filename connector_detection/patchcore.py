@@ -52,6 +52,7 @@ def train_patchcore_per_class(
     class_depth: int = 1,
     validation_image_dir: Path | None = None,
     config: AnomalibPatchcoreConfig | None = None,
+    class_labels: list[str] | None = None,
 ) -> tuple[Path, Path]:
     cfg = config or AnomalibPatchcoreConfig()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -61,10 +62,11 @@ def train_patchcore_per_class(
         raise ValueError(f"No training images found under {train_image_dir}")
 
     labels = infer_labels_from_root(train_paths, train_image_dir, class_depth)
-    class_labels = sorted(set(labels))
+    available_labels = sorted(set(labels))
+    selected_labels = _select_class_labels(available_labels, class_labels, "training")
     rows = []
     models = {}
-    for label in class_labels:
+    for label in selected_labels:
         class_output_dir = output_dir / "classes" / _safe_filename(label)
         dataset_root = class_output_dir / "dataset"
         _prepare_anomalib_folder_dataset(
@@ -98,6 +100,7 @@ def train_patchcore_per_class(
             "backend": "anomalib",
             "config": cfg,
             "class_depth": class_depth,
+            "class_labels": selected_labels,
             "class_models": models,
         },
         model_index_path,
@@ -166,6 +169,23 @@ def validate_patchcore_per_class(
         validation_image_dir=validation_image_dir,
     )
     return report_path
+
+
+def _select_class_labels(
+    available_labels: list[str],
+    requested_labels: list[str] | None,
+    context: str,
+) -> list[str]:
+    if not requested_labels:
+        return available_labels
+    missing = sorted(set(requested_labels) - set(available_labels))
+    if missing:
+        available = ", ".join(available_labels)
+        raise ValueError(
+            f"Unknown PatchCore class label(s) for {context}: {', '.join(missing)}. "
+            f"Available labels: {available}"
+        )
+    return [label for label in available_labels if label in set(requested_labels)]
 
 
 def infer_labels_from_root(

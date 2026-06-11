@@ -173,6 +173,17 @@ uv run connector-detection patchcore-validate \
   --class-label 20pin
 ```
 
+Train only one class:
+
+```bash
+uv run connector-detection patchcore-train \
+  configs/patchcore.example.toml \
+  --train-image-dir data/pin_band_train \
+  --validation-image-dir data/pin_band_val \
+  --output-dir outputs/patchcore_20pin \
+  --class-label 20pin
+```
+
 Main outputs:
 
 - `patchcore_models.joblib`: per-class anomalib checkpoint index.
