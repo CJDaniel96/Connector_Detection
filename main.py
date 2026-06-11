@@ -1,5 +1,6 @@
-from connector_detection.cli import app
+def main():
+    print("Hello from connector-detection!")
 
 
 if __name__ == "__main__":
-    app()
+    main()
