@@ -185,6 +185,11 @@ Main outputs:
 - `dinomaly_report.md`: compact training or validation report.
 - `anomalib/`: anomalib trainer logs, checkpoints, and visual artifacts.
 - `predictions.csv`: prediction scores when anomalib returns prediction batches.
+- `heatmaps/*_raw_heatmap.png`: raw anomaly heatmaps.
+- `heatmaps/*_overlay.png`: anomaly heatmaps overlaid on the original image.
+- `plots/score_histogram.png`: anomaly score distribution.
+- `montage/top_anomaly_scores.jpg`: highest-score validation images.
+- `montage/top_anomaly_overlays.jpg`: highest-score validation overlays.
 
 For long pin-band crops, `configs/dinomaly.example.toml` uses
 `dinomaly_image_size = [112, 560]` and `dinomaly_crop_size = "null"`. In this

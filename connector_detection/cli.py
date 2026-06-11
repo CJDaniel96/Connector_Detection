@@ -675,6 +675,9 @@ def _dinomaly_config_from_pipeline(cfg) -> AnomalibDinomalyConfig:
         normal_split_ratio=cfg.dinomaly_normal_split_ratio,
         test_split_ratio=cfg.dinomaly_test_split_ratio,
         val_split_ratio=cfg.dinomaly_val_split_ratio,
+        histogram_bins=cfg.dinomaly_histogram_bins,
+        montage_samples=cfg.dinomaly_montage_samples,
+        heatmap_alpha=cfg.dinomaly_heatmap_alpha,
         seed=cfg.random_state,
     )
 

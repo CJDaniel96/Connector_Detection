@@ -2,10 +2,14 @@ from __future__ import annotations
 
 from dataclasses import dataclass
 from pathlib import Path
+import os
+import tempfile
 from typing import Any
 
 import joblib
+import numpy as np
 import pandas as pd
+from PIL import Image, ImageDraw, ImageOps
 
 from connector_detection.images import list_images
 from connector_detection.patchcore import (
@@ -15,13 +19,21 @@ from connector_detection.patchcore import (
     write_anomalib_patchcore_report,
 )
 from connector_detection.patchcore import (
+    _first_present,
     _find_checkpoint_path,
     _flatten_anomalib_metrics,
     _hw_tuple,
     _instantiate_with_supported_kwargs,
     _link_images,
-    _predict_and_report,
+    _to_list,
+    _value_at,
 )
+
+os.environ.setdefault(
+    "MPLCONFIGDIR",
+    str(Path(tempfile.gettempdir()) / "connector_detection_matplotlib"),
+)
+import matplotlib.pyplot as plt
 
 
 @dataclass(frozen=True)
@@ -45,6 +57,9 @@ class AnomalibDinomalyConfig:
     normal_split_ratio: float = 0.2
     test_split_ratio: float = 0.2
     val_split_ratio: float = 0.5
+    histogram_bins: int = 30
+    montage_samples: int = 30
+    heatmap_alpha: float = 0.45
     seed: int = 42
 
 
@@ -215,7 +230,7 @@ def _fit_one_dinomaly(
     engine.fit(model=model, datamodule=datamodule)
     test_result = engine.test(model=model, datamodule=datamodule)
     checkpoint_path = _find_checkpoint_path(engine, output_dir)
-    predictions_path = _predict_and_report(engine, model, datamodule, output_dir, config)
+    predictions_path = _predict_and_visualize(engine, model, datamodule, output_dir, config)
     return {
         "label": "unified",
         "checkpoint_path": str(checkpoint_path),
@@ -240,7 +255,14 @@ def _test_one_dinomaly(
         default_root_dir=output_dir / "anomalib",
     )
     test_result = engine.test(model=model, datamodule=datamodule, ckpt_path=checkpoint_path)
-    predictions_path = _predict_and_report(engine, model, datamodule, output_dir, config, checkpoint_path)
+    predictions_path = _predict_and_visualize(
+        engine,
+        model,
+        datamodule,
+        output_dir,
+        config,
+        checkpoint_path,
+    )
     return {
         "label": "unified",
         "checkpoint_path": str(checkpoint_path),
@@ -331,6 +353,226 @@ def _make_no_crop_pre_processor(image_size: tuple[int, int] | None) -> Any:
     return PreProcessor(transform=Compose(transforms))
 
 
+def _predict_and_visualize(
+    engine: Any,
+    model: Any,
+    datamodule: Any,
+    output_dir: Path,
+    config: AnomalibDinomalyConfig,
+    checkpoint_path: Path | None = None,
+) -> Path | None:
+    try:
+        predictions = engine.predict(
+            model=model,
+            datamodule=datamodule,
+            ckpt_path=checkpoint_path,
+        )
+    except Exception:
+        return None
+
+    rows = []
+    heatmap_dir = output_dir / "heatmaps"
+    for batch in [] if predictions is None else predictions:
+        rows.extend(_prediction_batch_to_rows(batch, heatmap_dir, config.heatmap_alpha))
+    if not rows:
+        return None
+
+    df = pd.DataFrame(rows)
+    path = output_dir / "predictions.csv"
+    df.to_csv(path, index=False)
+    _plot_score_histogram(df, output_dir / "plots", config.histogram_bins)
+    _export_top_score_montages(df, output_dir / "montage", config.montage_samples)
+    return path
+
+
+def _prediction_batch_to_rows(
+    batch: Any,
+    heatmap_dir: Path,
+    alpha: float,
+) -> list[dict[str, Any]]:
+    if isinstance(batch, dict):
+        data = batch
+    elif hasattr(batch, "__dict__"):
+        data = batch.__dict__
+    else:
+        return []
+
+    paths = _to_list(_first_present(data, ("image_path", "path", "image_paths")))
+    scores = _to_list(_first_present(data, ("pred_score", "anomaly_score", "score")))
+    labels = _to_list(_first_present(data, ("label", "gt_label")))
+    pred_labels = _to_list(data.get("pred_label"))
+    anomaly_maps = _to_list(_first_present(data, ("anomaly_map", "pred_mask", "heatmap")))
+
+    rows = []
+    for index, image_path in enumerate(paths):
+        raw_heatmap_path = None
+        heatmap_path = None
+        overlay_path = None
+        anomaly_map = _value_at(anomaly_maps, index)
+        if anomaly_map is not None:
+            raw_heatmap_path, heatmap_path, overlay_path = _save_heatmap_outputs(
+                image_path=Path(image_path),
+                anomaly_map=anomaly_map,
+                output_dir=heatmap_dir,
+                index=index,
+                alpha=alpha,
+            )
+        rows.append(
+            {
+                "image_path": str(image_path),
+                "pred_score": _value_at(scores, index),
+                "label": _value_at(labels, index),
+                "pred_label": _value_at(pred_labels, index),
+                "raw_heatmap_path": str(raw_heatmap_path) if raw_heatmap_path else "",
+                "heatmap_path": str(heatmap_path) if heatmap_path else "",
+                "overlay_path": str(overlay_path) if overlay_path else "",
+            }
+        )
+    return rows
+
+
+def _save_heatmap_outputs(
+    image_path: Path,
+    anomaly_map: Any,
+    output_dir: Path,
+    index: int,
+    alpha: float,
+) -> tuple[Path, Path, Path] | tuple[None, None, None]:
+    heatmap = _anomaly_map_to_array(anomaly_map)
+    if heatmap is None:
+        return None, None, None
+
+    output_dir.mkdir(parents=True, exist_ok=True)
+    stem = f"{image_path.stem}_{index:04d}"
+    raw_heatmap_path = output_dir / f"{stem}_raw_heatmap.png"
+    heatmap_path = output_dir / f"{stem}_heatmap.png"
+    overlay_path = output_dir / f"{stem}_overlay.png"
+
+    colored = _visualize_heatmap(heatmap)
+    colored.save(raw_heatmap_path)
+
+    if image_path.exists():
+        with Image.open(image_path) as raw_image:
+            image = ImageOps.exif_transpose(raw_image).convert("RGB")
+            overlay = _overlay_heatmap(image, colored, alpha)
+            overlay.save(heatmap_path)
+            overlay.save(overlay_path)
+    else:
+        colored.save(heatmap_path)
+        colored.save(overlay_path)
+    return raw_heatmap_path, heatmap_path, overlay_path
+
+
+def _anomaly_map_to_array(anomaly_map: Any) -> np.ndarray | None:
+    if hasattr(anomaly_map, "detach"):
+        anomaly_map = anomaly_map.detach().cpu().numpy()
+    array = np.asarray(anomaly_map)
+    if array.size == 0:
+        return None
+    array = np.squeeze(array)
+    if array.ndim == 3:
+        array = array[0] if array.shape[0] in (1, 3) else array[:, :, 0]
+    if array.ndim != 2:
+        return None
+    array = array.astype(np.float32)
+    array = array - float(np.nanmin(array))
+    max_value = float(np.nanmax(array))
+    if max_value > 0:
+        array = array / max_value
+    return np.nan_to_num(array, nan=0.0, posinf=1.0, neginf=0.0)
+
+
+def _visualize_heatmap(heatmap: np.ndarray) -> Image.Image:
+    try:
+        from anomalib.visualization.image.functional import visualize_anomaly_map
+
+        return visualize_anomaly_map(heatmap, normalize=True, colormap=True).convert("RGB")
+    except Exception:
+        cmap = plt.get_cmap("jet")
+        rgba = cmap(np.clip(heatmap, 0.0, 1.0))
+        rgb = (rgba[:, :, :3] * 255).astype(np.uint8)
+        return Image.fromarray(rgb, mode="RGB")
+
+
+def _overlay_heatmap(image: Image.Image, heatmap: Image.Image, alpha: float) -> Image.Image:
+    heatmap = heatmap.resize(image.size, Image.Resampling.BILINEAR)
+    try:
+        from anomalib.visualization.image.functional import overlay_images
+
+        return overlay_images(image, heatmap, alpha=alpha).convert("RGB")
+    except Exception:
+        return Image.blend(image, heatmap, alpha=alpha)
+
+
+def _plot_score_histogram(df: pd.DataFrame, output_dir: Path, bins: int) -> None:
+    if "pred_score" not in df:
+        return
+    scores = pd.to_numeric(df["pred_score"], errors="coerce")
+    if scores.dropna().empty:
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+    plt.figure(figsize=(8, 5))
+    if "label" in df and df["label"].notna().any():
+        for label, group in df.groupby("label"):
+            pd.to_numeric(group["pred_score"], errors="coerce").dropna().hist(
+                bins=bins,
+                alpha=0.55,
+                label=str(label),
+            )
+        plt.legend()
+    else:
+        scores.dropna().hist(bins=bins)
+    plt.title("Dinomaly anomaly scores")
+    plt.xlabel("pred_score")
+    plt.ylabel("count")
+    plt.tight_layout()
+    plt.savefig(output_dir / "score_histogram.png", dpi=160)
+    plt.close()
+
+
+def _export_top_score_montages(df: pd.DataFrame, output_dir: Path, samples: int) -> None:
+    if "pred_score" not in df or "image_path" not in df:
+        return
+    scored = df.copy()
+    scored["pred_score"] = pd.to_numeric(scored["pred_score"], errors="coerce")
+    scored = scored.dropna(subset=["pred_score"]).sort_values("pred_score", ascending=False)
+    if scored.empty:
+        return
+    output_dir.mkdir(parents=True, exist_ok=True)
+    scored = scored.head(samples)
+    _save_montage(scored, "image_path", output_dir / "top_anomaly_scores.jpg")
+    if "overlay_path" in scored and scored["overlay_path"].astype(str).str.len().gt(0).any():
+        overlay_scored = scored[scored["overlay_path"].astype(str).str.len() > 0]
+        _save_montage(overlay_scored, "overlay_path", output_dir / "top_anomaly_overlays.jpg")
+
+
+def _save_montage(df: pd.DataFrame, path_column: str, output_path: Path) -> None:
+    tile_size = (180, 120)
+    columns = 5
+    rows = max(1, (len(df) + columns - 1) // columns)
+    montage = Image.new("RGB", (columns * tile_size[0], rows * tile_size[1]), "white")
+    draw = ImageDraw.Draw(montage)
+    for index, row in enumerate(df.itertuples(index=False)):
+        image_path = Path(getattr(row, path_column))
+        if not image_path.exists():
+            continue
+        with Image.open(image_path) as raw_image:
+            image = ImageOps.exif_transpose(raw_image).convert("RGB")
+            image.thumbnail(tile_size, Image.Resampling.BICUBIC)
+            tile_x = (index % columns) * tile_size[0]
+            tile_y = (index // columns) * tile_size[1]
+            x = tile_x + (tile_size[0] - image.width) // 2
+            y = tile_y + (tile_size[1] - image.height) // 2
+            montage.paste(image, (x, y))
+            draw.rectangle(
+                [tile_x, tile_y, tile_x + tile_size[0] - 1, tile_y + tile_size[1] - 1],
+                outline=(220, 0, 0),
+                width=2,
+            )
+            draw.text((tile_x + 4, tile_y + 4), f"{row.pred_score:.3f}", fill=(0, 0, 0))
+    montage.save(output_path)
+
+
 def _normal_training_paths(
     root: Path,
     class_depth: int,
@@ -401,6 +643,11 @@ def write_anomalib_dinomaly_report(
             "- `dinomaly_anomalib_summary.csv`: anomalib test metrics and artifact paths",
             "- `anomalib`: anomalib trainer logs, checkpoints, and visual artifacts",
             "- `predictions.csv`: prediction scores when anomalib returns prediction batches",
+            "- `heatmaps/*_raw_heatmap.png`: raw anomaly heatmaps",
+            "- `heatmaps/*_overlay.png`: heatmaps overlaid on input images",
+            "- `plots/score_histogram.png`: anomaly score histogram",
+            "- `montage/top_anomaly_scores.jpg`: highest-score input images",
+            "- `montage/top_anomaly_overlays.jpg`: highest-score heatmap overlays",
         ]
     )
     if validation_image_dir is not None:

@@ -44,6 +44,9 @@ class PipelineConfig:
     dinomaly_normal_split_ratio: float = 0.2
     dinomaly_test_split_ratio: float = 0.2
     dinomaly_val_split_ratio: float = 0.5
+    dinomaly_histogram_bins: int = 30
+    dinomaly_montage_samples: int = 30
+    dinomaly_heatmap_alpha: float = 0.45
     projection_profile_dims: int = 128
     bright_threshold: float = 0.65
     edge_threshold: float = 0.12
@@ -131,6 +134,9 @@ def load_config(path: Path) -> PipelineConfig:
         dinomaly_normal_split_ratio=float(section.get("dinomaly_normal_split_ratio", 0.2)),
         dinomaly_test_split_ratio=float(section.get("dinomaly_test_split_ratio", 0.2)),
         dinomaly_val_split_ratio=float(section.get("dinomaly_val_split_ratio", 0.5)),
+        dinomaly_histogram_bins=int(section.get("dinomaly_histogram_bins", 30)),
+        dinomaly_montage_samples=int(section.get("dinomaly_montage_samples", 30)),
+        dinomaly_heatmap_alpha=float(section.get("dinomaly_heatmap_alpha", 0.45)),
         projection_profile_dims=int(section.get("projection_profile_dims", 128)),
         bright_threshold=float(section.get("bright_threshold", 0.65)),
         edge_threshold=float(section.get("edge_threshold", 0.12)),
