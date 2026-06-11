@@ -57,7 +57,7 @@ human-reviewable grouping.
 unlabeled images
 -> DINOv2 / CLIP / ViT / ResNet embedding
 -> PCA or UMAP reduction
--> K-Means clustering
+-> K-Means / HDBSCAN / DBSCAN / GMM clustering
 -> UMAP visualization
 -> representative images per cluster
 -> manual cluster naming or merge notes
@@ -70,10 +70,39 @@ uv run connector-detection foundation-cluster \
   --image-dir data/unlabeled_pin_bands \
   --output-dir outputs/foundation_clusters \
   --model-kind dinov2 \
+  --clusterer kmeans \
   --n-clusters 8 \
   --reducer pca \
   --reduced-dim 50 \
   --review-samples 30
+```
+
+Alternative clustering algorithms:
+
+```bash
+uv run connector-detection foundation-cluster \
+  --image-dir data/unlabeled_pin_bands \
+  --output-dir outputs/foundation_hdbscan \
+  --model-kind dinov2 \
+  --clusterer hdbscan \
+  --hdbscan-min-cluster-size 10 \
+  --hdbscan-min-samples 5
+
+uv run connector-detection foundation-cluster \
+  --image-dir data/unlabeled_pin_bands \
+  --output-dir outputs/foundation_dbscan \
+  --model-kind dinov2 \
+  --clusterer dbscan \
+  --dbscan-eps 0.5 \
+  --dbscan-min-samples 5
+
+uv run connector-detection foundation-cluster \
+  --image-dir data/unlabeled_pin_bands \
+  --output-dir outputs/foundation_gmm \
+  --model-kind dinov2 \
+  --clusterer gmm \
+  --n-clusters 8 \
+  --gmm-covariance-type full
 ```
 
 Other supported backbones:
@@ -87,9 +116,9 @@ uv run connector-detection foundation-cluster --image-dir data/unlabeled --outpu
 Main outputs:
 
 - `embeddings.npy`: raw foundation model image embeddings.
-- `embeddings_reduced.npy`: PCA or UMAP features used by K-Means.
+- `embeddings_reduced.npy`: PCA or UMAP features used by the selected clusterer.
 - `clusters.csv`: per-image cluster id, centroid distance, and representative rank.
-- `umap_clusters.png`: 2D UMAP plot colored by K-Means cluster.
+- `umap_clusters.png`: 2D UMAP plot colored by cluster id.
 - `review/cluster_*/`: representative images nearest to each cluster centroid.
 - `review/montage/cluster_*.jpg`: montage for fast manual review.
 - `cluster_labels_template.csv`: fill `cluster_name` and optional `merge_to` after review.

@@ -11,8 +11,9 @@ import joblib
 import numpy as np
 import pandas as pd
 from PIL import Image, ImageDraw, ImageOps
-from sklearn.cluster import KMeans
+from sklearn.cluster import DBSCAN, KMeans
 from sklearn.decomposition import PCA
+from sklearn.mixture import GaussianMixture
 from sklearn.preprocessing import StandardScaler
 
 from connector_detection.images import list_images, resize_with_padding
@@ -32,7 +33,13 @@ class FoundationClusterConfig:
     batch_size: int = 16
     reducer: str = "pca"
     reduced_dim: int = 50
+    clusterer: str = "kmeans"
     n_clusters: int = 8
+    dbscan_eps: float = 0.5
+    dbscan_min_samples: int = 5
+    hdbscan_min_cluster_size: int = 10
+    hdbscan_min_samples: int | None = None
+    gmm_covariance_type: str = "full"
     umap_neighbors: int = 15
     review_samples: int = 25
     random_state: int = 42
@@ -49,10 +56,7 @@ def run_foundation_clustering(
     image_paths = list_images(image_dir)
     if not image_paths:
         raise ValueError(f"No images found under {image_dir}")
-    if config.n_clusters > len(image_paths):
-        raise ValueError(
-            f"n_clusters={config.n_clusters} is larger than image count={len(image_paths)}"
-        )
+    _validate_cluster_config(config, image_count=len(image_paths))
 
     output_dir = output_dir.resolve()
     output_dir.mkdir(parents=True, exist_ok=True)
@@ -67,7 +71,7 @@ def run_foundation_clustering(
     reduced_path = output_dir / "embeddings_reduced.npy"
     np.save(reduced_path, reduced_embeddings)
 
-    clusters, kmeans = _fit_kmeans(reduced_embeddings, config)
+    clusters, cluster_model = _fit_clusters(reduced_embeddings, config)
     clusters_path = _write_clusters(image_paths, image_dir, clusters, output_dir)
     umap_path = _plot_umap(
         embeddings=reduced_embeddings,
@@ -87,7 +91,7 @@ def run_foundation_clustering(
         config=config,
         reducer_model=reducer_model,
         feature_scaler=feature_scaler,
-        kmeans=kmeans,
+        cluster_model=cluster_model,
         image_dir=image_dir,
         manifest_path=manifest_path,
         embeddings_path=embeddings_path,
@@ -105,6 +109,25 @@ def run_foundation_clustering(
         model_path=model_path,
     )
     return clusters_path, umap_path, review_summary_path, labels_template_path
+
+
+def _validate_cluster_config(config: FoundationClusterConfig, image_count: int) -> None:
+    clusterer_name = config.clusterer.lower()
+    if clusterer_name not in {"kmeans", "hdbscan", "dbscan", "gmm"}:
+        raise ValueError("clusterer must be one of: kmeans, hdbscan, dbscan, gmm")
+    if config.clusterer.lower() in {"kmeans", "gmm"} and config.n_clusters > len(image_paths):
+        raise ValueError(
+            f"n_clusters={config.n_clusters} is larger than image count={image_count}"
+        )
+    if clusterer_name == "hdbscan" and config.hdbscan_min_cluster_size > image_count:
+        raise ValueError(
+            "hdbscan_min_cluster_size cannot be larger than image count "
+            f"({config.hdbscan_min_cluster_size} > {image_count})"
+        )
+    if clusterer_name == "dbscan" and config.dbscan_eps <= 0:
+        raise ValueError("dbscan_eps must be greater than 0")
+    if clusterer_name == "gmm" and config.gmm_covariance_type not in {"full", "tied", "diag", "spherical"}:
+        raise ValueError("gmm_covariance_type must be one of: full, tied, diag, spherical")
 
 
 def apply_foundation_cluster_labels(
@@ -319,6 +342,22 @@ def _reduce_embeddings(
     return reduced, reducer, scaler
 
 
+def _fit_clusters(
+    reduced_embeddings: np.ndarray,
+    config: FoundationClusterConfig,
+) -> tuple[pd.DataFrame, object]:
+    clusterer_name = config.clusterer.lower()
+    if clusterer_name == "kmeans":
+        return _fit_kmeans(reduced_embeddings, config)
+    if clusterer_name == "gmm":
+        return _fit_gmm(reduced_embeddings, config)
+    if clusterer_name == "dbscan":
+        return _fit_dbscan(reduced_embeddings, config)
+    if clusterer_name == "hdbscan":
+        return _fit_hdbscan(reduced_embeddings, config)
+    raise ValueError("clusterer must be one of: kmeans, hdbscan, dbscan, gmm")
+
+
 def _fit_kmeans(
     reduced_embeddings: np.ndarray,
     config: FoundationClusterConfig,
@@ -336,10 +375,79 @@ def _fit_kmeans(
             "distance_to_centroid": distances.astype(float),
         }
     )
-    rows["representative_rank"] = (
-        rows.groupby("cluster")["distance_to_centroid"].rank(method="first", ascending=True).astype(int)
-    )
+    rows["cluster_probability"] = 1.0
+    rows["representative_rank"] = _representative_ranks(rows)
     return rows, kmeans
+
+
+def _fit_gmm(
+    reduced_embeddings: np.ndarray,
+    config: FoundationClusterConfig,
+) -> tuple[pd.DataFrame, GaussianMixture]:
+    gmm = GaussianMixture(
+        n_components=config.n_clusters,
+        covariance_type=config.gmm_covariance_type,
+        random_state=config.random_state,
+    )
+    cluster_ids = gmm.fit_predict(reduced_embeddings)
+    distances = np.linalg.norm(reduced_embeddings - gmm.means_[cluster_ids], axis=1)
+    probabilities = gmm.predict_proba(reduced_embeddings).max(axis=1)
+    rows = pd.DataFrame(
+        {
+            "cluster": cluster_ids.astype(int),
+            "distance_to_centroid": distances.astype(float),
+            "cluster_probability": probabilities.astype(float),
+        }
+    )
+    rows["representative_rank"] = _representative_ranks(rows)
+    return rows, gmm
+
+
+def _fit_dbscan(
+    reduced_embeddings: np.ndarray,
+    config: FoundationClusterConfig,
+) -> tuple[pd.DataFrame, DBSCAN]:
+    dbscan = DBSCAN(eps=config.dbscan_eps, min_samples=config.dbscan_min_samples)
+    cluster_ids = dbscan.fit_predict(reduced_embeddings)
+    rows = _clusters_from_labels(reduced_embeddings, cluster_ids)
+    rows["cluster_probability"] = np.where(rows["cluster"].to_numpy() == -1, 0.0, 1.0)
+    rows["representative_rank"] = _representative_ranks(rows)
+    return rows, dbscan
+
+
+def _fit_hdbscan(
+    reduced_embeddings: np.ndarray,
+    config: FoundationClusterConfig,
+) -> tuple[pd.DataFrame, object]:
+    import hdbscan
+
+    hdbscan_model = hdbscan.HDBSCAN(
+        min_cluster_size=config.hdbscan_min_cluster_size,
+        min_samples=config.hdbscan_min_samples,
+    )
+    cluster_ids = hdbscan_model.fit_predict(reduced_embeddings)
+    rows = _clusters_from_labels(reduced_embeddings, cluster_ids)
+    rows["cluster_probability"] = hdbscan_model.probabilities_.astype(float)
+    rows["representative_rank"] = _representative_ranks(rows)
+    return rows, hdbscan_model
+
+
+def _clusters_from_labels(reduced_embeddings: np.ndarray, cluster_ids: np.ndarray) -> pd.DataFrame:
+    distances = np.zeros(len(cluster_ids), dtype=np.float32)
+    for cluster in sorted(set(cluster_ids.tolist())):
+        mask = cluster_ids == cluster
+        center = reduced_embeddings[mask].mean(axis=0)
+        distances[mask] = np.linalg.norm(reduced_embeddings[mask] - center, axis=1)
+    return pd.DataFrame(
+        {
+            "cluster": cluster_ids.astype(int),
+            "distance_to_centroid": distances.astype(float),
+        }
+    )
+
+
+def _representative_ranks(rows: pd.DataFrame) -> pd.Series:
+    return rows.groupby("cluster")["distance_to_centroid"].rank(method="first", ascending=True).astype(int)
 
 
 def _write_clusters(
@@ -386,7 +494,7 @@ def _plot_umap(
         alpha=0.85,
     )
     plt.colorbar(scatter, label="cluster")
-    plt.title("Foundation Embedding K-Means Clusters")
+    plt.title("Foundation Embedding Clusters")
     plt.xlabel("UMAP-1")
     plt.ylabel("UMAP-2")
     plt.tight_layout()
@@ -423,9 +531,9 @@ def _export_cluster_review(
         group = group.sort_values("representative_rank")
         sample_count = min(review_samples, len(group))
         samples = group.head(sample_count)
-        cluster_dir = output_dir / f"cluster_{int(cluster):03d}"
+        cluster_dir = output_dir / _cluster_dir_name(int(cluster))
         _copy_review_images(samples, cluster_dir)
-        montage_path = montage_dir / f"cluster_{int(cluster):03d}.jpg"
+        montage_path = montage_dir / f"{_cluster_dir_name(int(cluster))}.jpg"
         _make_montage(
             [Path(path) for path in samples["image_path"]],
             montage_path,
@@ -489,6 +597,12 @@ def _make_montage(
     montage.save(output_path)
 
 
+def _cluster_dir_name(cluster: int) -> str:
+    if cluster < 0:
+        return f"cluster_noise_{abs(cluster):03d}"
+    return f"cluster_{cluster:03d}"
+
+
 def _write_label_template(clusters_path: Path, output_dir: Path) -> Path:
     clusters = pd.read_csv(clusters_path)
     rows = []
@@ -513,7 +627,7 @@ def _write_model(
     config: FoundationClusterConfig,
     reducer_model: object,
     feature_scaler: StandardScaler,
-    kmeans: KMeans,
+    cluster_model: object,
     image_dir: Path,
     manifest_path: Path,
     embeddings_path: Path,
@@ -526,7 +640,7 @@ def _write_model(
             "config": asdict(config),
             "feature_scaler": feature_scaler,
             "reducer": reducer_model,
-            "kmeans": kmeans,
+            "clusterer": cluster_model,
             "image_dir": image_dir,
             "manifest_path": manifest_path,
             "embeddings_path": embeddings_path,
@@ -560,7 +674,13 @@ def _write_report(
         f"- model_name: {config.model_name or _default_model_name(config.model_kind)}",
         f"- reducer: {config.reducer}",
         f"- reduced_dim: {config.reduced_dim}",
-        f"- n_clusters: {config.n_clusters}",
+        f"- clusterer: {config.clusterer}",
+        f"- n_clusters: {config.n_clusters if config.clusterer.lower() in {'kmeans', 'gmm'} else 'not_used'}",
+        f"- dbscan_eps: {config.dbscan_eps}",
+        f"- dbscan_min_samples: {config.dbscan_min_samples}",
+        f"- hdbscan_min_cluster_size: {config.hdbscan_min_cluster_size}",
+        f"- hdbscan_min_samples: {config.hdbscan_min_samples}",
+        f"- gmm_covariance_type: {config.gmm_covariance_type}",
         f"- clusters_csv: {clusters_path}",
         f"- umap_plot: {umap_path}",
         f"- review_summary: {review_summary_path}",

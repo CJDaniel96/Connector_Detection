@@ -118,7 +118,7 @@ def foundation_cluster(
     ),
     output_dir: Path = typer.Option(
         Path("outputs/foundation_clusters"),
-        help="Output directory for embeddings, K-Means clusters, UMAP plot, and review samples.",
+        help="Output directory for embeddings, clusters, UMAP plot, and review samples.",
     ),
     model_kind: str = typer.Option(
         "dinov2",
@@ -136,17 +136,45 @@ def foundation_cluster(
     batch_size: int = typer.Option(16, min=1, help="Embedding extraction batch size."),
     reducer: str = typer.Option(
         "pca",
-        help="Dimensionality reducer before K-Means: pca or umap.",
+        help="Dimensionality reducer before clustering: pca or umap.",
     ),
     reduced_dim: int = typer.Option(
         50,
         min=1,
-        help="Feature dimension used by K-Means after PCA/UMAP reduction.",
+        help="Feature dimension used by clustering after PCA/UMAP reduction.",
+    ),
+    clusterer: str = typer.Option(
+        "kmeans",
+        help="Clustering algorithm: kmeans, hdbscan, dbscan, or gmm.",
     ),
     n_clusters: int = typer.Option(
-        ...,
+        8,
         min=2,
-        help="Number of K-Means clusters.",
+        help="Number of clusters for K-Means or GMM.",
+    ),
+    dbscan_eps: float = typer.Option(
+        0.5,
+        min=0.0,
+        help="DBSCAN eps radius. Only used when --clusterer dbscan.",
+    ),
+    dbscan_min_samples: int = typer.Option(
+        5,
+        min=1,
+        help="DBSCAN min_samples. Only used when --clusterer dbscan.",
+    ),
+    hdbscan_min_cluster_size: int = typer.Option(
+        10,
+        min=2,
+        help="HDBSCAN min_cluster_size. Only used when --clusterer hdbscan.",
+    ),
+    hdbscan_min_samples: int | None = typer.Option(
+        None,
+        min=1,
+        help="HDBSCAN min_samples. Defaults to min_cluster_size when omitted.",
+    ),
+    gmm_covariance_type: str = typer.Option(
+        "full",
+        help="GMM covariance type: full, tied, diag, or spherical.",
     ),
     umap_neighbors: int = typer.Option(
         15,
@@ -158,7 +186,7 @@ def foundation_cluster(
         min=1,
         help="Representative images copied per cluster for manual review.",
     ),
-    random_state: int = typer.Option(42, help="Random seed for PCA/UMAP/K-Means."),
+    random_state: int = typer.Option(42, help="Random seed for PCA/UMAP/clustering."),
     device: str | None = typer.Option(None, help="Torch device, for example cuda, mps, or cpu."),
 ) -> None:
     clusters_path, umap_path, review_summary_path, labels_template_path = run_foundation_clustering(
@@ -171,7 +199,13 @@ def foundation_cluster(
             batch_size=batch_size,
             reducer=reducer,
             reduced_dim=reduced_dim,
+            clusterer=clusterer,
             n_clusters=n_clusters,
+            dbscan_eps=dbscan_eps,
+            dbscan_min_samples=dbscan_min_samples,
+            hdbscan_min_cluster_size=hdbscan_min_cluster_size,
+            hdbscan_min_samples=hdbscan_min_samples,
+            gmm_covariance_type=gmm_covariance_type,
             umap_neighbors=umap_neighbors,
             review_samples=review_samples,
             random_state=random_state,
