@@ -1,0 +1,1 @@
+"""Connector defect detection pipeline."""

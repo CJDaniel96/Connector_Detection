@@ -1,0 +1,22 @@
+# PatchCore configuration for pin row anomaly detection
+# ----------------------------------------------------------
+# Backbone: wide_resnet50_2 provides a good balance of speed vs. accuracy.
+# Layers: layer2 (mid-level texture) + layer3 (high-level semantics).
+# Increase coreset_sampling_ratio if memory bank is too small (underfits).
+# Decrease it to reduce memory and speed up inference.
+
+backbone: wide_resnet50_2
+layers:
+  - layer2
+  - layer3
+pre_trained: true
+coreset_sampling_ratio: 0.1
+num_neighbors: 9
+
+# Input resolution — pin row is typically narrow and wide
+input_size: [224, 224]
+
+# DataLoader
+train_batch_size: 32
+eval_batch_size: 32
+num_workers: 4

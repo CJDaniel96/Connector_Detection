@@ -1,0 +1,20 @@
+# PatchCore configuration for metal body anomaly detection
+# ----------------------------------------------------------
+# Metal body is typically larger than pin row; using 256×256 input.
+# Increase coreset_sampling_ratio if you have many training images (>500).
+
+backbone: wide_resnet50_2
+layers:
+  - layer2
+  - layer3
+pre_trained: true
+coreset_sampling_ratio: 0.1
+num_neighbors: 9
+
+# Input resolution — metal body may have finer surface texture details
+input_size: [256, 256]
+
+# DataLoader
+train_batch_size: 32
+eval_batch_size: 32
+num_workers: 4
