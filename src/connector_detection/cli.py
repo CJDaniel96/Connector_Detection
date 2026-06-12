@@ -1,5 +1,6 @@
 """Console script entry points (installed via pyproject.toml [project.scripts])."""
 
+from connector_detection.commands.localize import app as _localize_app
 from connector_detection.commands.normalize import app as _normalize_app
 from connector_detection.commands.train import app as _train_app
 from connector_detection.commands.validate import app as _validate_app
@@ -15,3 +16,7 @@ def train_patchcore_cli() -> None:
 
 def validate_patchcore_cli() -> None:
     _validate_app()
+
+
+def localize_pins_cli() -> None:
+    _localize_app()

@@ -25,6 +25,7 @@ dependencies = [
 normalize-orientation = "connector_detection.cli:normalize_orientation_cli"
 train-patchcore = "connector_detection.cli:train_patchcore_cli"
 validate-patchcore = "connector_detection.cli:validate_patchcore_cli"
+localize-pins = "connector_detection.cli:localize_pins_cli"
 
 [tool.setuptools.packages.find]
 where = ["src"]
