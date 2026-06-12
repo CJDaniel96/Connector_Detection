@@ -41,7 +41,6 @@ import typer
 from anomalib.data import PredictDataset
 from anomalib.engine import Engine
 from anomalib.models import Patchcore
-from torch.utils.data import DataLoader
 
 matplotlib.use("Agg")
 
@@ -79,18 +78,16 @@ def _collect_images(test_dir: Path) -> tuple[list[Path], list[int] | None]:
 
 def _run_inference(
     model: Patchcore,
-    ckpt_path: Path,
     image_dir: Path,
     tmp_dir: Path,
 ) -> tuple[list[float], list[Path]]:
     """Use Engine.predict for inference. Returns (scores, image_paths)."""
     engine = Engine(default_root_dir=str(tmp_dir))
     dataset = PredictDataset(path=image_dir)
-    dataloader = DataLoader(dataset, batch_size=32, num_workers=4, shuffle=False)
 
     predictions = engine.predict(
         model=model,
-        dataloaders=dataloader,
+        dataset=dataset,
         return_predictions=True,
     )
 
@@ -286,7 +283,7 @@ def main(
     model.eval()
 
     tmp_dir = output_dir / "_engine_tmp"
-    scores, inferred_paths = _run_inference(model, ckpt_path, test_dir, tmp_dir)
+    scores, inferred_paths = _run_inference(model, test_dir, tmp_dir)
 
     if not inferred_paths:
         inferred_paths = image_paths
