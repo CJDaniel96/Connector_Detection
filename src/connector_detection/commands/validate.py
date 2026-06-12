@@ -91,7 +91,6 @@ def _run_inference(
     predictions = engine.predict(
         model=model,
         dataloaders=dataloader,
-        ckpt_path=str(ckpt_path),
         return_predictions=True,
     )
 
@@ -283,7 +282,7 @@ def main(
     typer.echo(f"Has GT      : {gt_labels_list is not None}")
     typer.echo("\nLoading model and running inference...")
 
-    model = Patchcore.load_from_checkpoint(str(ckpt_path))
+    model = Patchcore.load_from_checkpoint(str(ckpt_path), weights_only=False)
     model.eval()
 
     tmp_dir = output_dir / "_engine_tmp"
